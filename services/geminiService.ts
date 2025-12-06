@@ -1,8 +1,6 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { PebbleData, CognitiveLevel } from "../types";
+import { PebbleData, CognitiveLevel, ContentBlock, ImageBlockData } from "../types";
 
-// Initialize the API client
-// Note: process.env.API_KEY is injected by the environment.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const RESPONSE_SCHEMA: Schema = {
@@ -10,62 +8,162 @@ const RESPONSE_SCHEMA: Schema = {
   properties: {
     eli5_title: { type: Type.STRING },
     eli5_summary: { type: Type.STRING },
-    eli5_sections: {
+    eli5_blocks: {
       type: Type.ARRAY,
       items: {
         type: Type.OBJECT,
         properties: {
+          type: { type: Type.STRING, enum: ['text', 'image', 'stat', 'quote'] },
+          weight: { type: Type.INTEGER },
           heading: { type: Type.STRING },
           body: { type: Type.STRING },
         },
+        required: ['type', 'weight', 'body']
       },
     },
     eli5_keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
     
     academic_title: { type: Type.STRING },
     academic_summary: { type: Type.STRING },
-    academic_sections: {
+    academic_blocks: {
       type: Type.ARRAY,
       items: {
         type: Type.OBJECT,
         properties: {
+          type: { type: Type.STRING, enum: ['text', 'image', 'stat', 'quote'] },
+          weight: { type: Type.INTEGER },
           heading: { type: Type.STRING },
           body: { type: Type.STRING },
         },
+        required: ['type', 'weight', 'body']
       },
     },
     academic_keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
-
-    mermaid_code: { type: Type.STRING, description: "A valid Mermaid.js graph definition (e.g. graph TD...)" },
     socratic_questions: { type: Type.ARRAY, items: { type: Type.STRING } },
   },
   required: [
-    "eli5_title", "eli5_summary", "eli5_sections", "eli5_keywords",
-    "academic_title", "academic_summary", "academic_sections", "academic_keywords",
-    "mermaid_code", "socratic_questions"
+    "eli5_title", "eli5_summary", "eli5_blocks", "eli5_keywords",
+    "academic_title", "academic_summary", "academic_blocks", "academic_keywords",
+    "socratic_questions"
   ],
 };
 
-export const generatePebble = async (topic: string): Promise<PebbleData> => {
-  const model = "gemini-2.5-flash"; // Using flash for speed and JSON capability
+// --- Image Retrieval Service ---
+
+async function fetchStockImage(keywords: string, weight: number): Promise<ImageBlockData> {
+  const orientation = weight === 3 ? 'landscape' : weight === 2 ? 'portrait' : 'squarish';
+  const accessKey = process.env.UNSPLASH_ACCESS_KEY;
   
+  // 1. Try Unsplash API if key exists
+  if (accessKey) {
+     try {
+       const res = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(keywords)}&orientation=${orientation}&per_page=1`, {
+         headers: { Authorization: `Client-ID ${accessKey}` }
+       });
+       const data = await res.json();
+       if (data.results && data.results.length > 0) {
+         const img = data.results[0];
+         return {
+           url_regular: img.urls.regular,
+           url_thumb: img.urls.small,
+           alt_text: img.alt_description || keywords,
+           photographer: {
+             name: img.user.name,
+             url: img.user.links.html
+           },
+           download_location: img.links.download_location
+         };
+       }
+     } catch (e) {
+       console.warn("Unsplash API failed/missing, falling back to generative stock.");
+     }
+  }
+
+  // 2. Fallback: Generative Stock Photography (Pollinations.ai)
+  // We simulate stock photography by injecting style keywords
+  const stylePrompt = `stock photography of ${keywords}, highly detailed, 8k, photorealistic, cinematic lighting, aesthetic, unsplash style`;
+  
+  // Dimensions based on weight
+  let width = 600;
+  let height = 600;
+  if (weight === 3) { width = 1200; height = 800; } // Landscape Hero
+  else if (weight === 2) { width = 600; height = 900; } // Portrait
+  
+  const seed = Math.floor(Math.random() * 1000);
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(stylePrompt)}?width=${width}&height=${height}&nologo=true&seed=${seed}`;
+  
+  return {
+    url_regular: url,
+    url_thumb: url,
+    alt_text: keywords,
+    photographer: { name: "AI Generated", url: "#" }
+  };
+}
+
+async function hydrateBlocks(blocks: any[]): Promise<ContentBlock[]> {
+  return Promise.all(blocks.map(async (block) => {
+    if (block.type === 'image') {
+      const imageData = await fetchStockImage(block.body, block.weight);
+      return { ...block, data: imageData };
+    }
+    return block;
+  }));
+}
+
+// --- Main Generation Function ---
+
+export const generatePebble = async (topic: string, contextPebbles: PebbleData[] = []): Promise<PebbleData> => {
+  const model = "gemini-2.5-flash"; 
+  
+  let contextPrompt = "";
+  if (contextPebbles.length > 0) {
+      contextPrompt = `
+      CONTEXT:
+      The user has explicitly referenced the following existing knowledge nodes. 
+      Use these to contrast, connect, or deepen the analysis of the new topic. 
+      Do not just repeat them, but show how the new topic relates to them.
+      
+      Referenced Nodes:
+      ${contextPebbles.map(p => `- Topic: "${p.topic}"\n  Summary: "${p.content[CognitiveLevel.ELI5].summary}"`).join('\n')}
+      `;
+  }
+
   const prompt = `
     You are 'Pebbles', a Generative Cognitive Builder. 
     Analyze the topic: "${topic}".
+    ${contextPrompt}
     
-    Generate a structured knowledge artifact with two distinct cognitive levels:
-    1. ELI5 (Explain Like I'm 5): Use analogies, simple language, and metaphors.
-    2. Academic: Use formal tone, technical terminology, and deep structural analysis.
+    Create a modular knowledge artifact with two cognitive levels (ELI5 and Academic).
+    Instead of a linear essay, generate "Blocks" with specific Weights and Types.
+
+    Weights dictate visual importance:
+    - Weight 3 (Hero): The core concept or key visualization. Large, central.
+    - Weight 2 (Major): Key arguments, main evidence, or illustrations.
+    - Weight 1 (Minor): Fun facts, definitions, stats, or short quotes.
+
+    Types:
+    - 'text': Standard explanation.
+    - 'image': A stock photo search query.
+    - 'stat': A single number or short stat (e.g., "99%", "1945").
+    - 'quote': A memorable quote or aphorism.
+
+    REQUIREMENTS:
+    1. ELI5: Use analogies, metaphors. 
+       - Include at least one 'image' block (Weight 2 or 3).
+       - Include at least one 'stat' or 'quote' block (Weight 1).
+    2. Academic: Deep technical analysis.
+       - Include one complex 'image' block (Weight 3).
+       - Include dense 'text' blocks (Weight 2).
     
-    Also generate:
-    - A Mermaid.js diagram code (graph TD or mindmap) that visualizes the concept's structure or process.
-    - CRITICAL: Return ONLY valid Mermaid syntax. 
-    - Ensure the first line is 'graph TD' (or 'mindmap') followed immediately by a newline character.
-    - Do NOT put node definitions on the same line as 'graph TD'.
-    - Do NOT use markdown code blocks or fencing. 
-    - Do NOT use HTML entities (use > for arrows, not &gt;). 
-    - ALWAYS quote node labels to handle special characters (e.g., A["Node Label"]).
-    - 3 Socratic reflection questions that test deep understanding.
+    CRITICAL IMAGE INSTRUCTIONS (Search Query Generation):
+    - For 'image' blocks, the 'body' field must be a comma-separated list of 2-3 CONCRETE, PHYSICAL keywords for a stock photo search engine.
+    - Do NOT use abstract concepts like "freedom" or "efficiency". 
+    - TRANSLATE abstract concepts into visual metaphors. 
+      Example: Instead of "Confusion", use "maze, fog, tangled wires".
+      Example: Instead of "Idea", use "lightbulb, glowing filament, spark".
+    - The 'heading' field acts as the caption for the image.
+    
+    3. Generate 3 Socratic reflection questions.
   `;
 
   try {
@@ -83,27 +181,30 @@ export const generatePebble = async (topic: string): Promise<PebbleData> => {
 
     const json = JSON.parse(text);
 
-    // Map JSON response to internal PebbleData structure
+    // Hydrate images (fetch URLs)
+    const eli5Blocks = await hydrateBlocks(json.eli5_blocks);
+    const academicBlocks = await hydrateBlocks(json.academic_blocks);
+
     const pebble: PebbleData = {
       id: crypto.randomUUID(),
       topic: topic,
       timestamp: Date.now(),
+      folderId: null, // Initialize at root
       isVerified: false,
       content: {
         [CognitiveLevel.ELI5]: {
           title: json.eli5_title,
           summary: json.eli5_summary,
-          sections: json.eli5_sections,
+          blocks: eli5Blocks,
           keywords: json.eli5_keywords,
         },
         [CognitiveLevel.ACADEMIC]: {
           title: json.academic_title,
           summary: json.academic_summary,
-          sections: json.academic_sections,
+          blocks: academicBlocks,
           keywords: json.academic_keywords,
         },
       },
-      mermaidChart: json.mermaid_code,
       socraticQuestions: json.socratic_questions,
     };
 

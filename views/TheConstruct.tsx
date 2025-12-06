@@ -4,11 +4,12 @@ import { PebbleData, LogEntry } from '../types';
 
 interface TheConstructProps {
   topic: string;
+  references: PebbleData[];
   onComplete: (pebble: PebbleData) => void;
   onError: (error: string) => void;
 }
 
-export const TheConstruct: React.FC<TheConstructProps> = ({ topic, onComplete, onError }) => {
+export const TheConstruct: React.FC<TheConstructProps> = ({ topic, references, onComplete, onError }) => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [phase, setPhase] = useState(0); // 0-255 for bg darkness
 
@@ -22,6 +23,9 @@ export const TheConstruct: React.FC<TheConstructProps> = ({ topic, onComplete, o
     const runConstruction = async () => {
       try {
         addLog(`> Analyzing intent: "${topic}"...`);
+        if (references.length > 0) {
+            addLog(`> Integrating ${references.length} context node${references.length > 1 ? 's' : ''}...`);
+        }
         setPhase(20);
         await new Promise(r => setTimeout(r, 800)); // Pacing
 
@@ -32,8 +36,8 @@ export const TheConstruct: React.FC<TheConstructProps> = ({ topic, onComplete, o
         addLog(`> Querying generative models...`);
         setPhase(100);
         
-        // Actual API Call
-        const pebble = await generatePebble(topic);
+        // Actual API Call with References
+        const pebble = await generatePebble(topic, references);
         
         if (isMounted) {
             addLog(`> Constructing artifacts...`);
@@ -57,7 +61,7 @@ export const TheConstruct: React.FC<TheConstructProps> = ({ topic, onComplete, o
 
     return () => { isMounted = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topic]);
+  }, [topic, references]);
 
   // Dynamic background style based on phase
   const bgStyle = {

@@ -47,12 +47,28 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ chart }) => {
           .replace(/^mermaid\s*/i, '')
           .trim();
 
-        // Ensure newline after graph/flowchart declaration
-        // Matches "graph TD " and replaces with "graph TD\n" if followed by non-whitespace
-        const graphDefinitionRegex = /^(graph|flowchart)\s+(TD|TB|BT|RL|LR)\s+(?!$)/i;
-        if (graphDefinitionRegex.test(cleanChart)) {
-           cleanChart = cleanChart.replace(graphDefinitionRegex, '$1 $2\n');
-        }
+        // 1. Quote unquoted node labels (Heuristic to fix syntax errors like C{Text})
+        // Matches id[...] where ... has no quotes and is not empty
+        cleanChart = cleanChart.replace(/([A-Za-z0-9_\-]+)\s*\[([^"\[\]\n\r]+)\]/g, '$1["$2"]');
+        cleanChart = cleanChart.replace(/([A-Za-z0-9_\-]+)\s*\(([^\(\)"\n\r]+)\)/g, '$1("$2")');
+        cleanChart = cleanChart.replace(/([A-Za-z0-9_\-]+)\s*\{([^"\{\}\n\r]+)\}/g, '$1{"$2"}');
+
+        // 2. Ensure newlines between statements that are jammed on one line
+        // Looks for a closing bracket/paren/quote, followed by 0+ spaces, then an Identifier,
+        // followed by a Start of a new node OR an arrow.
+        // Example: A["Text"]B["Text"] -> A["Text"]\nB["Text"]
+        // Example: A["Text"] B --> C -> A["Text"]\nB --> C
+        cleanChart = cleanChart.replace(
+            /([\]\)\}"'])\s*([A-Za-z0-9_\-]+)(?=\s*([\[\(\{]|-->|-\.|==>))/g, 
+            '$1\n$2'
+        );
+
+        // 3. Ensure newline after graph/flowchart declaration
+        // Matches "graph TD " and replaces with "graph TD\n"
+        cleanChart = cleanChart.replace(/^(graph|flowchart)\s+([a-zA-Z0-9]+)/i, '$1 $2\n');
+        
+        // 4. Clean up any double newlines introduced
+        cleanChart = cleanChart.replace(/\n\s*\n/g, '\n');
         
         const { svg } = await window.mermaid.render(id, cleanChart);
         setSvg(svg);
