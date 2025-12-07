@@ -402,11 +402,14 @@ export const TheArchive: React.FC<TheArchiveProps> = ({
                  {folder.name}
                </h3>
                <div className="grid grid-cols-2 grid-rows-2 gap-2 h-[120px]">
-                 {previews.map(p => (
-                   <div key={p.id} className="bg-stone-600 rounded-lg p-2 overflow-hidden flex items-center justify-center">
-                      <span className="text-[8px] text-stone-300 leading-tight text-center line-clamp-3">{p.topic}</span>
-                   </div>
-                 ))}
+                 {previews.map(p => {
+                    const emoji = p.content.ELI5.emojiCollage?.[0] || '📄';
+                    return (
+                        <div key={p.id} className="bg-stone-600 rounded-lg p-2 overflow-hidden flex items-center justify-center">
+                            <span className="text-xl filter drop-shadow-sm">{emoji}</span>
+                        </div>
+                    );
+                 })}
                  {[...Array(Math.max(0, 4 - previews.length))].map((_, i) => (
                    <div key={i} className="bg-stone-800/50 rounded-lg border border-stone-700/50 border-dashed" />
                  ))}
@@ -420,6 +423,8 @@ export const TheArchive: React.FC<TheArchiveProps> = ({
         {gridItems.pebbles.map(pebble => {
           const isSelected = selectedIds.has(pebble.id);
           const isEditing = editingId === pebble.id;
+          const emojis = pebble.content.ELI5.emojiCollage || [];
+          
           return (
           <div 
             key={pebble.id}
@@ -433,7 +438,15 @@ export const TheArchive: React.FC<TheArchiveProps> = ({
             className={`col-span-1 row-span-1 bg-stone-800/60 backdrop-blur rounded-2xl p-4 flex flex-col justify-between cursor-pointer hover:bg-stone-700 transition-all border group relative hover:-translate-y-1 hover:shadow-xl ${isSelected ? 'border-stone-400 ring-1 ring-stone-400 bg-stone-700' : 'border-stone-700 hover:border-stone-400'}`}
           >
              <div>
-               <div className={`w-2 h-2 rounded-full mb-2 ${pebble.isVerified ? 'bg-green-500' : 'bg-stone-600'}`} />
+               <div className="flex justify-between items-start mb-3">
+                   <div className="flex -space-x-1">
+                       {emojis.slice(0, 3).map((e, i) => (
+                           <span key={i} className="text-xl filter drop-shadow-sm">{e}</span>
+                       ))}
+                   </div>
+                   <div className={`w-2 h-2 rounded-full ${pebble.isVerified ? 'bg-green-500' : 'bg-stone-600'}`} />
+               </div>
+               
                {isEditing ? (
                    <input 
                       type="text"
@@ -451,7 +464,6 @@ export const TheArchive: React.FC<TheArchiveProps> = ({
                    <h4 className="text-sm font-bold text-stone-200 line-clamp-2 leading-tight select-none">{pebble.topic}</h4>
                )}
              </div>
-             {!isEditing && <p className="text-[10px] text-stone-500 line-clamp-2 mt-2 font-serif select-none">{pebble.content.ELI5.summary}</p>}
              
              {/* Hover Menu Trigger for quick access */}
              <button 
@@ -634,6 +646,8 @@ export const TheArchive: React.FC<TheArchiveProps> = ({
         <div className="absolute left-8 md:left-1/2 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-stone-700 to-transparent pointer-events-none" />
         {sorted.map(pebble => {
           const isFossil = (Date.now() - pebble.timestamp) > 1000 * 60 * 5; 
+          const emojis = pebble.content.ELI5.emojiCollage || ['📜'];
+
           return (
             <div 
               key={pebble.id}
@@ -645,6 +659,9 @@ export const TheArchive: React.FC<TheArchiveProps> = ({
                 <div className="flex justify-between items-start mb-2">
                   <h3 className="text-xl font-display font-bold text-stone-100">{pebble.topic}</h3>
                   {pebble.isVerified && <span className="text-[10px] uppercase tracking-widest text-green-400 border border-green-900 bg-green-900/20 px-2 py-0.5 rounded">Mastered</span>}
+                </div>
+                <div className="flex gap-2 mb-4 text-2xl">
+                    {emojis.slice(0, 4).map((e,i) => <span key={i}>{e}</span>)}
                 </div>
                 <p className="text-stone-400 text-sm font-serif line-clamp-2 mb-4">{pebble.content.ELI5.summary}</p>
               </div>
@@ -780,6 +797,7 @@ export const TheArchive: React.FC<TheArchiveProps> = ({
                                 </div>
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-6 bg-stone-900/50">
+                                    <div className="text-4xl mb-4 text-center">{previewPebble.content.ELI5.emojiCollage?.[0]}</div>
                                     <h2 className="text-2xl font-display font-bold text-stone-100 mb-2">{previewPebble.topic}</h2>
                                     <div className="flex gap-2 mb-6">
                                         {previewPebble.isVerified && <span className="bg-green-900/30 text-green-400 border border-green-900 px-2 py-0.5 rounded text-[10px] uppercase tracking-wide">Verified</span>}
@@ -787,22 +805,9 @@ export const TheArchive: React.FC<TheArchiveProps> = ({
                                     </div>
                                     
                                     <div className="space-y-6">
-                                        {previewPebble.content[CognitiveLevel.ELI5].blocks.map((block, idx) => (
-                                            <div key={idx} className="bg-stone-800/50 rounded-lg p-4 border border-stone-800">
-                                                {block.heading && <h4 className="text-sm font-bold text-stone-300 mb-2">{block.heading}</h4>}
-                                                {block.type === 'image' && block.data ? (
-                                                    <div className="bg-stone-900 rounded-lg overflow-hidden border border-stone-700">
-                                                        <img 
-                                                        src={block.data.url_thumb}
-                                                        alt={block.data.alt_text}
-                                                        className="w-full h-auto object-cover opacity-80 hover:opacity-100 transition-opacity"
-                                                        />
-                                                    </div>
-                                                ) : (
-                                                    <p className="text-sm text-stone-400 leading-relaxed whitespace-pre-line">{block.body}</p>
-                                                )}
-                                            </div>
-                                        ))}
+                                        <p className="text-sm text-stone-400 font-serif leading-relaxed">
+                                            {previewPebble.content.ELI5.summary}
+                                        </p>
                                     </div>
                                 </div>
                             </aside>

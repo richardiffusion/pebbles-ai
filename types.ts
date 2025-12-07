@@ -10,32 +10,35 @@ export enum CognitiveLevel {
   ACADEMIC = 'ACADEMIC', // Deep, technical
 }
 
-export type BlockType = 'text' | 'image' | 'stat' | 'quote';
-export type BlockWeight = 1 | 2 | 3; // 1: Minor (1x1), 2: Major (2x1 or 1x2), 3: Hero (2x2)
+// --- New Magazine Layout Types ---
 
-export interface ImageBlockData {
-  url_regular: string;
-  url_thumb: string;
-  alt_text: string;
-  photographer?: {
-    name: string;
-    url: string;
-  };
-  download_location?: string;
+export type IconType = 'definition' | 'history' | 'idea' | 'controversy' | 'future' | 'analysis' | 'default';
+
+export type MainBlockType = 'text' | 'pull_quote' | 'key_points';
+export type SidebarBlockType = 'definition' | 'profile' | 'stat';
+
+export interface MainBlock {
+  type: MainBlockType;
+  heading?: string;
+  iconType?: IconType; 
+  body: string | string[]; // string for text/quote, array for list items
+  isUserEdited?: boolean;
 }
 
-export interface ContentBlock {
-  type: BlockType;
-  weight: BlockWeight;
-  heading?: string;
-  body: string; // For 'image', this contains the search keywords
-  data?: ImageBlockData; // Populated after generation/retrieval
+export interface SidebarBlock {
+  type: SidebarBlockType;
+  heading: string;
+  body: string;
+  emoji?: string; // For profile avatars or visual stats
+  isUserEdited?: boolean;
 }
 
 export interface CognitiveContent {
   title: string;
   summary: string;
-  blocks: ContentBlock[];
+  emojiCollage: string[]; // 3-5 emojis for visual texture
+  mainContent: MainBlock[];
+  sidebarContent: SidebarBlock[];
   keywords: string[];
 }
 

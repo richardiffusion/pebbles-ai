@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ViewState, PebbleData, Folder, GenerationTask } from './types';
+import { ViewState, PebbleData, Folder, GenerationTask, CognitiveLevel, MainBlock, SidebarBlock } from './types';
 import { TheDrop } from './views/TheDrop';
 import { TheConstruct } from './views/TheConstruct';
 import { TheArtifact } from './views/TheArtifact';
@@ -193,6 +193,85 @@ const App: React.FC = () => {
     ));
   };
 
+  const handleUpdatePebbleContent = (
+      pebbleId: string, 
+      level: CognitiveLevel, 
+      section: 'main' | 'sidebar', 
+      index: number, 
+      updatedBlock: MainBlock | SidebarBlock
+  ) => {
+      const updateFn = (prev: PebbleData[]) => prev.map(p => {
+          if (p.id !== pebbleId) return p;
+          
+          const levelContent = p.content[level];
+          let newContent = { ...levelContent };
+
+          if (section === 'main') {
+              const newBlocks = [...levelContent.mainContent];
+              newBlocks[index] = { ...updatedBlock as MainBlock, isUserEdited: true };
+              newContent.mainContent = newBlocks;
+          } else {
+              const newBlocks = [...levelContent.sidebarContent];
+              newBlocks[index] = { ...updatedBlock as SidebarBlock, isUserEdited: true };
+              newContent.sidebarContent = newBlocks;
+          }
+
+          return {
+              ...p,
+              content: {
+                  ...p.content,
+                  [level]: newContent
+              }
+          };
+      });
+
+      setArchive(updateFn);
+      
+      // Update active pebble reference if it's the one being edited
+      if (activePebble?.id === pebbleId) {
+          setActivePebble(prev => {
+             if (!prev) return null;
+             const levelContent = prev.content[level];
+             let newContent = { ...levelContent };
+
+             if (section === 'main') {
+                 const newBlocks = [...levelContent.mainContent];
+                 newBlocks[index] = { ...updatedBlock as MainBlock, isUserEdited: true };
+                 newContent.mainContent = newBlocks;
+             } else {
+                 const newBlocks = [...levelContent.sidebarContent];
+                 newBlocks[index] = { ...updatedBlock as SidebarBlock, isUserEdited: true };
+                 newContent.sidebarContent = newBlocks;
+             }
+
+             return { ...prev, content: { ...prev.content, [level]: newContent } };
+          });
+      }
+  };
+
+  const handleUpdateEmojiCollage = (pebbleId: string, level: CognitiveLevel, newEmojis: string[]) => {
+     const updateFn = (prev: PebbleData[]) => prev.map(p => {
+        if(p.id !== pebbleId) return p;
+        return {
+            ...p,
+            content: {
+                ...p.content,
+                [level]: { ...p.content[level], emojiCollage: newEmojis }
+            }
+        };
+     });
+     setArchive(updateFn);
+     if (activePebble?.id === pebbleId) {
+         setActivePebble(prev => prev ? {
+             ...prev,
+             content: {
+                 ...prev.content,
+                 [level]: { ...prev.content[level], emojiCollage: newEmojis }
+             }
+         } : null);
+     }
+  };
+
   const handleDeletePebbles = (ids: string[]) => {
     setArchive(prev => prev.map(p => 
       ids.includes(p.id) ? { ...p, isDeleted: true } : p
@@ -264,6 +343,8 @@ const App: React.FC = () => {
                     pebble={activePebble} 
                     onVerify={handleVerify}
                     onBack={goToDrop}
+                    onUpdateContent={handleUpdatePebbleContent}
+                    onUpdateEmoji={handleUpdateEmojiCollage}
                 />
             </div>
           )}

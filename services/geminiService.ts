@@ -1,114 +1,61 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { PebbleData, CognitiveLevel, ContentBlock, ImageBlockData } from "../types";
+import { PebbleData, CognitiveLevel, IconType } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+// --- New Schema for Magazine Layout ---
+
+const MAIN_BLOCK_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    type: { type: Type.STRING, enum: ['text', 'pull_quote', 'key_points'] },
+    heading: { type: Type.STRING, description: "Optional header for the section" },
+    iconType: { 
+      type: Type.STRING, 
+      enum: ['definition', 'history', 'idea', 'controversy', 'future', 'analysis', 'default'],
+      description: "Semantic icon mapping for the section header"
+    },
+    body: { 
+      type: Type.STRING, // We will parse JSON array for key_points manually or just ask for string with delimiters if needed, but here we can try flexible
+      description: "For 'key_points', return a pipe-separated string (e.g. 'Point 1|Point 2'). For others, standard text."
+    },
+  },
+  required: ['type', 'body']
+};
+
+const SIDEBAR_BLOCK_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    type: { type: Type.STRING, enum: ['definition', 'profile', 'stat'] },
+    heading: { type: Type.STRING },
+    body: { type: Type.STRING },
+    emoji: { type: Type.STRING, description: "Single emoji for profile avatar or visual" },
+  },
+  required: ['type', 'heading', 'body']
+};
+
+const LEVEL_CONTENT_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    title: { type: Type.STRING },
+    summary: { type: Type.STRING },
+    emojiCollage: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3-5 emojis representing the core theme" },
+    mainContent: { type: Type.ARRAY, items: MAIN_BLOCK_SCHEMA },
+    sidebarContent: { type: Type.ARRAY, items: SIDEBAR_BLOCK_SCHEMA },
+    keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+  },
+  required: ['title', 'summary', 'emojiCollage', 'mainContent', 'sidebarContent', 'keywords']
+};
 
 const RESPONSE_SCHEMA: Schema = {
   type: Type.OBJECT,
   properties: {
-    eli5_title: { type: Type.STRING },
-    eli5_summary: { type: Type.STRING },
-    eli5_blocks: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          type: { type: Type.STRING, enum: ['text', 'image', 'stat', 'quote'] },
-          weight: { type: Type.INTEGER },
-          heading: { type: Type.STRING },
-          body: { type: Type.STRING },
-        },
-        required: ['type', 'weight', 'body']
-      },
-    },
-    eli5_keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
-    
-    academic_title: { type: Type.STRING },
-    academic_summary: { type: Type.STRING },
-    academic_blocks: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          type: { type: Type.STRING, enum: ['text', 'image', 'stat', 'quote'] },
-          weight: { type: Type.INTEGER },
-          heading: { type: Type.STRING },
-          body: { type: Type.STRING },
-        },
-        required: ['type', 'weight', 'body']
-      },
-    },
-    academic_keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+    eli5_content: LEVEL_CONTENT_SCHEMA,
+    academic_content: LEVEL_CONTENT_SCHEMA,
     socratic_questions: { type: Type.ARRAY, items: { type: Type.STRING } },
   },
-  required: [
-    "eli5_title", "eli5_summary", "eli5_blocks", "eli5_keywords",
-    "academic_title", "academic_summary", "academic_blocks", "academic_keywords",
-    "socratic_questions"
-  ],
+  required: ["eli5_content", "academic_content", "socratic_questions"],
 };
-
-// --- Image Retrieval Service ---
-
-async function fetchStockImage(keywords: string, weight: number): Promise<ImageBlockData> {
-  const orientation = weight === 3 ? 'landscape' : weight === 2 ? 'portrait' : 'squarish';
-  const accessKey = process.env.UNSPLASH_ACCESS_KEY;
-  
-  // 1. Try Unsplash API if key exists
-  if (accessKey) {
-     try {
-       const res = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(keywords)}&orientation=${orientation}&per_page=1`, {
-         headers: { Authorization: `Client-ID ${accessKey}` }
-       });
-       const data = await res.json();
-       if (data.results && data.results.length > 0) {
-         const img = data.results[0];
-         return {
-           url_regular: img.urls.regular,
-           url_thumb: img.urls.small,
-           alt_text: img.alt_description || keywords,
-           photographer: {
-             name: img.user.name,
-             url: img.user.links.html
-           },
-           download_location: img.links.download_location
-         };
-       }
-     } catch (e) {
-       console.warn("Unsplash API failed/missing, falling back to generative stock.");
-     }
-  }
-
-  // 2. Fallback: Generative Stock Photography (Pollinations.ai)
-  // We simulate stock photography by injecting style keywords
-  const stylePrompt = `stock photography of ${keywords}, highly detailed, 8k, photorealistic, cinematic lighting, aesthetic, unsplash style`;
-  
-  // Dimensions based on weight
-  let width = 600;
-  let height = 600;
-  if (weight === 3) { width = 1200; height = 800; } // Landscape Hero
-  else if (weight === 2) { width = 600; height = 900; } // Portrait
-  
-  const seed = Math.floor(Math.random() * 1000);
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(stylePrompt)}?width=${width}&height=${height}&nologo=true&seed=${seed}`;
-  
-  return {
-    url_regular: url,
-    url_thumb: url,
-    alt_text: keywords,
-    photographer: { name: "AI Generated", url: "#" }
-  };
-}
-
-async function hydrateBlocks(blocks: any[]): Promise<ContentBlock[]> {
-  return Promise.all(blocks.map(async (block) => {
-    if (block.type === 'image') {
-      const imageData = await fetchStockImage(block.body, block.weight);
-      return { ...block, data: imageData };
-    }
-    return block;
-  }));
-}
 
 // --- Main Generation Function ---
 
@@ -118,52 +65,47 @@ export const generatePebble = async (topic: string, contextPebbles: PebbleData[]
   let contextPrompt = "";
   if (contextPebbles.length > 0) {
       contextPrompt = `
-      CONTEXT:
-      The user has explicitly referenced the following existing knowledge nodes. 
-      Use these to contrast, connect, or deepen the analysis of the new topic. 
-      Do not just repeat them, but show how the new topic relates to them.
-      
-      Referenced Nodes:
-      ${contextPebbles.map(p => `- Topic: "${p.topic}"\n  Summary: "${p.content[CognitiveLevel.ELI5].summary}"`).join('\n')}
+      CONTEXT NODES:
+      The user explicitly referenced these existing pebbles. Connect the new topic to them.
+      ${contextPebbles.map(p => `- ${p.topic}: ${p.content[CognitiveLevel.ELI5].summary}`).join('\n')}
       `;
   }
 
   const prompt = `
-    You are 'Pebbles', a Generative Cognitive Builder. 
-    Analyze the topic: "${topic}".
+    You are 'Pebbles', a Cognitive Architect.
+    Topic: "${topic}"
     ${contextPrompt}
-    
-    Create a modular knowledge artifact with two cognitive levels (ELI5 and Academic).
-    Instead of a linear essay, generate "Blocks" with specific Weights and Types.
 
-    Weights dictate visual importance:
-    - Weight 3 (Hero): The core concept or key visualization. Large, central.
-    - Weight 2 (Major): Key arguments, main evidence, or illustrations.
-    - Weight 1 (Minor): Fun facts, definitions, stats, or short quotes.
-
-    Types:
-    - 'text': Standard explanation.
-    - 'image': A stock photo search query.
-    - 'stat': A single number or short stat (e.g., "99%", "1945").
-    - 'quote': A memorable quote or aphorism.
-
-    REQUIREMENTS:
-    1. ELI5: Use analogies, metaphors. 
-       - Include at least one 'image' block (Weight 2 or 3).
-       - Include at least one 'stat' or 'quote' block (Weight 1).
-    2. Academic: Deep technical analysis.
-       - Include one complex 'image' block (Weight 3).
-       - Include dense 'text' blocks (Weight 2).
+    Generate a high-density, magazine-style knowledge artifact.
+    Structure the content into two distinct cognitive levels (ELI5 and Academic).
     
-    CRITICAL IMAGE INSTRUCTIONS (Search Query Generation):
-    - For 'image' blocks, the 'body' field must be a comma-separated list of 2-3 CONCRETE, PHYSICAL keywords for a stock photo search engine.
-    - Do NOT use abstract concepts like "freedom" or "efficiency". 
-    - TRANSLATE abstract concepts into visual metaphors. 
-      Example: Instead of "Confusion", use "maze, fog, tangled wires".
-      Example: Instead of "Idea", use "lightbulb, glowing filament, spark".
-    - The 'heading' field acts as the caption for the image.
-    
-    3. Generate 3 Socratic reflection questions.
+    VISUAL STYLE:
+    - Do NOT generate images. Instead, use "Emoji Collages" (sets of 3-5 emojis) to conceptually represent the topic.
+    - Use "Sidebar" content to offload definitions, stats, and profiles, keeping the main text clean.
+
+    LAYOUT INSTRUCTIONS:
+    1. **Main Content (70% width)**:
+       - Deep, narrative text broken into logical sections.
+       - Use 'pull_quote' for impactful insights.
+       - Use 'key_points' for checklists or summaries (format body as "Point 1|Point 2|Point 3").
+       - Assign 'iconType' to headers based on semantics:
+         * 'definition' (Lightbulb): Core concepts.
+         * 'history' (Library/Hourglass): Background.
+         * 'idea' (Spark): Key insights.
+         * 'controversy' (Scale): Debates/Issues.
+         * 'future' (Rocket): Outlook.
+         * 'analysis' (Magnifying Glass): Deep dive.
+
+    2. **Sidebar Content (30% width)**:
+       - 'definition': Brief glossary terms.
+       - 'profile': Key historical figures (assign a relevant emoji avatar).
+       - 'stat': Key numbers or dates.
+
+    3. **Cognitive Levels**:
+       - ELI5: Use metaphors, analogies. Sidebar focus on fun facts/simple terms.
+       - Academic: Technical depth, historical context. Sidebar focus on citations/complex definitions.
+
+    Generate 3 Socratic reflection questions for verification.
   `;
 
   try {
@@ -181,28 +123,30 @@ export const generatePebble = async (topic: string, contextPebbles: PebbleData[]
 
     const json = JSON.parse(text);
 
-    // Hydrate images (fetch URLs)
-    const eli5Blocks = await hydrateBlocks(json.eli5_blocks);
-    const academicBlocks = await hydrateBlocks(json.academic_blocks);
+    // Helper to process body content (split pipes for key_points)
+    const processMainContent = (blocks: any[]) => {
+        return blocks.map(b => {
+            if (b.type === 'key_points' && typeof b.body === 'string') {
+                return { ...b, body: b.body.split('|').map((s: string) => s.trim()) };
+            }
+            return b;
+        });
+    };
 
     const pebble: PebbleData = {
       id: crypto.randomUUID(),
       topic: topic,
       timestamp: Date.now(),
-      folderId: null, // Initialize at root
+      folderId: null,
       isVerified: false,
       content: {
         [CognitiveLevel.ELI5]: {
-          title: json.eli5_title,
-          summary: json.eli5_summary,
-          blocks: eli5Blocks,
-          keywords: json.eli5_keywords,
+          ...json.eli5_content,
+          mainContent: processMainContent(json.eli5_content.mainContent)
         },
         [CognitiveLevel.ACADEMIC]: {
-          title: json.academic_title,
-          summary: json.academic_summary,
-          blocks: academicBlocks,
-          keywords: json.academic_keywords,
+          ...json.academic_content,
+          mainContent: processMainContent(json.academic_content.mainContent)
         },
       },
       socraticQuestions: json.socratic_questions,

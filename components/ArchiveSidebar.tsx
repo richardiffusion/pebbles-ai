@@ -496,7 +496,7 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
 
               {/* Items as Cards */}
               {items.map(pebble => {
-                  const coverImage = pebble.content.ELI5.blocks.find(b => b.type === 'image')?.data?.url_thumb;
+                  const emojis = pebble.content.ELI5.emojiCollage || [];
                   return (
                       <div 
                         key={pebble.id}
@@ -506,12 +506,13 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                         onContextMenu={(e) => handleContextMenu(e, pebble.id, 'pebble')}
                         className="group bg-white border border-stone-200 rounded-xl overflow-hidden hover:shadow-lg hover:-translate-y-1 transition-all cursor-pointer"
                       >
-                          {coverImage && (
-                              <div className="h-24 w-full bg-stone-200 overflow-hidden relative">
-                                  <img src={coverImage} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" alt="" />
-                                  {pebble.isVerified && <div className="absolute top-2 right-2 bg-green-500 w-2 h-2 rounded-full ring-2 ring-white" />}
-                              </div>
-                          )}
+                          {/* Emoji Collage Preview */}
+                          <div className="h-24 w-full bg-stone-100 overflow-hidden relative flex items-center justify-center gap-1">
+                              {emojis.slice(0, 3).map((e, i) => (
+                                 <span key={i} className="text-4xl filter drop-shadow-sm transform group-hover:scale-110 transition-transform">{e}</span>
+                              ))}
+                              {pebble.isVerified && <div className="absolute top-2 right-2 bg-green-500 w-2 h-2 rounded-full ring-2 ring-white" />}
+                          </div>
                           <div className="p-4">
                               <h4 className="font-display font-bold text-stone-900 leading-tight mb-2 line-clamp-2">{pebble.topic}</h4>
                               <div className="flex gap-2 mb-3">
