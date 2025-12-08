@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+motor              # 异步 MongoDB 驱动
+pydantic
+pydantic-settings
+passlib[bcrypt]    # 密码哈希
+python-jose[cryptography] # JWT 处理
+python-multipart   # 表单处理 (登录用)
+google-generativeai # Gemini SDK
+python-dotenv
