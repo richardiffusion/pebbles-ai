@@ -1,5 +1,5 @@
 # 目前pebbles项目还在立项阶段
-# www.richardiffusion.me/pebbles
+# www.richardiffusion.me/pebbles/app
 
 <img width="2850" height="1758" alt="image" src="https://github.com/user-attachments/assets/81beef31-8fa5-4471-b5ff-305ee90c28aa" />
 
