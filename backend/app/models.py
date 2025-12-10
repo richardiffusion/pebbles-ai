@@ -66,3 +66,7 @@ class UserInDB(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+class RewriteRequest(BaseModel):
+    text: str
+    mode: str # 'improve', 'shorter', 'longer', 'simplify'

@@ -131,3 +131,32 @@ async def generate_pebble_logic(topic: str, context_pebbles: list) -> Pebble:
     except Exception as e:
         print(f"DeepSeek Generation Error: {e}")
         raise e
+    
+
+# ★★★ 新增：文本改写逻辑 ★★★
+async def rewrite_text_logic(text: str, mode: str) -> str:
+    instructions = {
+        "improve": "Rewrite this text to be more clear, professional, and engaging. Keep the same meaning.",
+        "shorter": "Summarize this text. Make it concise and punchy. Remove fluff.",
+        "longer": "Expand on this text. Add more detail, context, and explanation.",
+        "simplify": "Explain this like I'm 5 years old. Use simple words and analogies."
+    }
+
+    instruction = instructions.get(mode, instructions["improve"])
+
+    system_prompt = "You are an expert editor. You output ONLY the rewritten text. No intro, no quotes."
+    user_prompt = f"Instruction: {instruction}\n\nOriginal Text: {text}"
+
+    try:
+        response = await client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.7,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Rewrite Error: {e}")
+        raise e

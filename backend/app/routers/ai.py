@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, Body
-from app.gemini_service import generate_pebble_logic
+from app.gemini_service import generate_pebble_logic, rewrite_text_logic
 from app.routers.auth import get_current_user
 from app.database import pebbles_collection
-from app.models import Pebble
+from app.models import Pebble, RewriteRequest
+
 
 router = APIRouter()
 
@@ -20,3 +21,9 @@ async def generate_pebble_endpoint(
     await pebbles_collection.insert_one(new_pebble.dict())
     
     return new_pebble
+
+# ★★★ 新增：改写接口 ★★★
+@router.post("/rewrite")
+async def rewrite_text(request: RewriteRequest, current_user: dict = Depends(get_current_user)):
+    new_text = await rewrite_text_logic(request.text, request.mode)
+    return {"text": new_text}

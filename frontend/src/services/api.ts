@@ -69,6 +69,11 @@ export const pebbleApi = {
         context_pebbles: contextPebbles 
     });
     return res.data;
+  },
+  // ★★★ 新增：改写文本方法 ★★★
+  rewrite: async (text: string, mode: 'improve' | 'shorter' | 'longer' | 'simplify') => {
+    const res = await api.post('/api/rewrite', { text, mode });
+    return res.data.text; // 返回字符串
   }
 };
 

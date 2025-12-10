@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { PebbleData, CognitiveLevel, MainBlock, SidebarBlock, IconType } from '../types';
 import { CognitiveSlider } from '../components/CognitiveSlider';
+import { pebbleApi } from '../services/api';
 import { 
   CheckCircle2, Circle, ArrowLeft, Quote, Activity, 
   Lightbulb, Library, Zap, Scale, Rocket, Search, BookOpen, User, Hash,
   Bold, Italic, Underline, Sparkles, RefreshCcw,
   Plus, ChevronUp, ChevronDown, Trash2, MoreVertical, X,
-  Edit2
+  Edit2, Loader2, Minimize2, Maximize2, Wand2, ArrowRight
 } from 'lucide-react';
 
 interface TheArtifactProps {
@@ -124,41 +125,119 @@ const EditableText: React.FC<EditableTextProps> = ({ tagName: Tag, html, classNa
 
 // --- 2. Floating Bubble Menu (Formatting) ---
 
+// ★★★ 全新的 FloatingMenu 组件 ★★★
 const FloatingMenu = () => {
+    // 状态管理
     const [visible, setVisible] = useState(false);
-    const [position, setPosition] = useState({ top: 0, left: 0 });
+    // mode: 'main' (基础格式), 'ai_options' (AI选项), 'processing' (AI思考中)
+    const [mode, setMode] = useState<'main' | 'ai_options' | 'processing'>('main');
+    const [position, setPosition] = useState({ top: 0, left: 0, placement: 'top' });
+    
+    // 用来对比选区是否真的变了，防止微小抖动
+    const lastRangeStr = useRef<string>('');
     const menuRef = useRef<HTMLDivElement>(null);
 
     const updatePosition = useCallback(() => {
         const selection = window.getSelection();
-        if (!selection || selection.isCollapsed) {
-            setVisible(false);
+
+        // 1. 隐藏检查
+        if (!selection || selection.isCollapsed || !selection.toString().trim()) {
+            // 只有在非处理状态下才允许自动隐藏
+            if (mode !== 'processing') {
+                setVisible(false);
+                setMode('main'); // 重置回主菜单
+                lastRangeStr.current = '';
+            }
             return;
         }
 
+        // 2. 防抖动核心：如果选区内容和范围没变，且菜单已显示，这就“锁死”位置，不再计算
         const range = selection.getRangeAt(0);
-        // Only show if selection is within an editable area
+        const currentRangeStr = range.toString() + range.startOffset + range.endOffset;
+        
+        if (visible && currentRangeStr === lastRangeStr.current) {
+            return; // 彻底解决左跳问题
+        }
+        lastRangeStr.current = currentRangeStr;
+
+        // 3. 容器检查 (确保在编辑器内)
         const container = range.commonAncestorContainer.parentElement;
-        if (!container?.isContentEditable) {
+        const isInsideEditor = container?.closest('.prose') || container?.closest('.group\\/block');
+        if (!isInsideEditor) {
              setVisible(false);
              return;
         }
 
+        // 4. 坐标计算 (智能避让)
         const rect = range.getBoundingClientRect();
-        setPosition({
-            top: rect.top - 40 + window.scrollY, // 40px above
-            left: rect.left + rect.width / 2
+        if (rect.width === 0) return;
+
+        // 默认显示在上方 (top)
+        const gap = 10;
+        const menuHeight = 50; // 预估高度
+        let placement = 'top';
+        let top = rect.top - gap; // 这里的 top 是指菜单底部的锚点
+
+        // 如果上方空间不足 (比如在屏幕最顶端)，改为显示在下方
+        if (top < menuHeight + 60) { // 60是顶部导航栏的大概高度
+            placement = 'bottom';
+            top = rect.bottom + gap;
+        } else {
+            top = rect.top - gap;
+        }
+
+        const left = rect.left + rect.width / 2;
+
+        setPosition({ 
+            top: Math.round(top + window.scrollY), 
+            left: Math.round(left),
+            placement 
         });
         setVisible(true);
-    }, []);
+    }, [visible, mode]);
 
     useEffect(() => {
         document.addEventListener('selectionchange', updatePosition);
-        return () => document.removeEventListener('selectionchange', updatePosition);
-    }, [updatePosition]);
+        // 只有不显示的时候才监听 resize/scroll 来隐藏，显示后锁定位置直到选区改变
+        if (!visible) {
+            window.addEventListener('resize', updatePosition);
+        }
+        return () => {
+            document.removeEventListener('selectionchange', updatePosition);
+            window.removeEventListener('resize', updatePosition);
+        };
+    }, [updatePosition, visible]);
 
     const exec = (command: string) => {
         document.execCommand(command, false);
+    };
+
+    const handleAiRewrite = async (aiMode: 'improve' | 'shorter' | 'longer' | 'simplify') => {
+        const selection = window.getSelection();
+        const text = selection?.toString();
+        if (!text) return;
+
+        // 锁定当前选区
+        const range = selection.getRangeAt(0).cloneRange();
+        
+        setMode('processing'); // 进入 loading 状态
+
+        try {
+            const newText = await pebbleApi.rewrite(text, aiMode);
+            
+            // 恢复选区并替换
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.execCommand('insertText', false, newText);
+            
+            // 任务完成，关闭菜单
+            setVisible(false);
+            setMode('main');
+        } catch (error) {
+            console.error(error);
+            alert("AI Failed");
+            setMode('ai_options'); // 回退到选项
+        }
     };
 
     if (!visible) return null;
@@ -166,17 +245,71 @@ const FloatingMenu = () => {
     return (
         <div 
             ref={menuRef}
-            style={{ top: position.top, left: position.left }}
-            className="fixed z-50 transform -translate-x-1/2 bg-stone-900 text-stone-200 rounded-full px-2 py-1 shadow-xl flex items-center gap-1 animate-in zoom-in-95 duration-100"
-            onMouseDown={(e) => e.preventDefault()} // Prevent focus loss
+            style={{ 
+                top: position.top, 
+                left: position.left,
+                // 根据 placement 决定是往上偏移还是往下偏移
+                transform: `translateX(-50%) ${position.placement === 'top' ? 'translateY(-100%)' : 'translateY(0)'}`
+            }}
+            className="fixed z-[100] animate-in fade-in zoom-in-95 duration-200"
+            onMouseDown={(e) => e.preventDefault()} // 防止失焦
         >
-            <button onClick={() => exec('bold')} className="p-1.5 hover:text-white hover:bg-stone-700 rounded-full"><Bold size={14} /></button>
-            <button onClick={() => exec('italic')} className="p-1.5 hover:text-white hover:bg-stone-700 rounded-full"><Italic size={14} /></button>
-            <button onClick={() => exec('underline')} className="p-1.5 hover:text-white hover:bg-stone-700 rounded-full"><Underline size={14} /></button>
-            <div className="w-px h-4 bg-stone-700 mx-1" />
-            <button className="p-1.5 hover:text-amber-300 hover:bg-stone-700 rounded-full flex items-center gap-1 text-xs font-bold text-amber-200/80">
-                <Sparkles size={12} /> AI
-            </button>
+            <div className="bg-stone-900 text-stone-200 rounded-full px-1.5 py-1.5 shadow-2xl border border-stone-700 flex items-center gap-1 overflow-hidden transition-all duration-300 ease-in-out">
+                
+                {/* 模式 1: 基础格式工具栏 */}
+                {mode === 'main' && (
+                    <div className="flex items-center gap-1 animate-in slide-in-from-left-2 duration-200">
+                        <button onClick={() => exec('bold')} className="p-1.5 hover:text-white hover:bg-stone-700 rounded-full transition-colors"><Bold size={14} /></button>
+                        <button onClick={() => exec('italic')} className="p-1.5 hover:text-white hover:bg-stone-700 rounded-full transition-colors"><Italic size={14} /></button>
+                        <button onClick={() => exec('underline')} className="p-1.5 hover:text-white hover:bg-stone-700 rounded-full transition-colors"><Underline size={14} /></button>
+                        
+                        <div className="w-px h-4 bg-stone-700 mx-1" />
+                        
+                        <button 
+                            onClick={() => setMode('ai_options')}
+                            className="px-2 py-1 rounded-full flex items-center gap-1.5 text-xs font-bold bg-gradient-to-r from-purple-900/50 to-blue-900/50 hover:from-purple-800 hover:to-blue-800 border border-white/10 text-stone-200 transition-all group"
+                        >
+                            <Sparkles size={12} className="text-purple-300 group-hover:text-white transition-colors" />
+                            <span>AI</span>
+                        </button>
+                    </div>
+                )}
+
+                {/* 模式 2: AI 选项菜单 (原地替换，不堆叠) */}
+                {mode === 'ai_options' && (
+                    <div className="flex items-center gap-1 animate-in slide-in-from-right-4 duration-200">
+                        <button 
+                            onClick={() => setMode('main')}
+                            className="p-1.5 hover:bg-stone-700 rounded-full text-stone-400 hover:text-white"
+                        >
+                            <ArrowLeft size={14} />
+                        </button>
+                        <div className="w-px h-4 bg-stone-700 mx-1" />
+                        
+                        <button onClick={() => handleAiRewrite('improve')} className="px-2 py-1.5 hover:bg-stone-700 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors">
+                            <Wand2 size={12} /> Fix
+                        </button>
+                        <button onClick={() => handleAiRewrite('shorter')} className="px-2 py-1.5 hover:bg-stone-700 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors">
+                            <Minimize2 size={12} /> Short
+                        </button>
+                        <button onClick={() => handleAiRewrite('longer')} className="px-2 py-1.5 hover:bg-stone-700 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors">
+                            <Maximize2 size={12} /> Expand
+                        </button>
+                    </div>
+                )}
+
+                {/* 模式 3: AI 处理中 */}
+                {mode === 'processing' && (
+                    <div className="flex items-center gap-2 px-3 py-1 animate-in fade-in duration-300">
+                        <Loader2 size={14} className="animate-spin text-blue-400" />
+                        <span className="text-xs font-bold text-stone-300 tracking-wide">Thinking...</span>
+                    </div>
+                )}
+
+            </div>
+            
+            {/* 底部小箭头指示器 */}
+            <div className={`w-3 h-3 bg-stone-900 border-r border-b border-stone-700 absolute left-1/2 -translate-x-1/2 rotate-45 ${position.placement === 'top' ? '-bottom-1.5' : '-top-1.5 border-r-0 border-b-0 border-l border-t'}`} />
         </div>
     );
 };
