@@ -5,12 +5,13 @@ import {
   CheckCircle2, Circle, ArrowLeft, Quote, Activity, 
   Lightbulb, Library, Zap, Scale, Rocket, Search, BookOpen, User, Hash,
   Bold, Italic, Underline, Sparkles, RefreshCcw,
-  Plus, ChevronUp, ChevronDown, Trash2, MoreVertical, X
+  Plus, ChevronUp, ChevronDown, Trash2, MoreVertical, X,
+  Edit2
 } from 'lucide-react';
 
 interface TheArtifactProps {
   pebble: PebbleData;
-  onVerify: (pebbleId: string) => void;
+  onVerify: (pebbleId: string, status: boolean) => void;
   onBack: () => void;
   onUpdateContent: (pebbleId: string, level: CognitiveLevel, section: 'main' | 'sidebar', index: number, updatedBlock: MainBlock | SidebarBlock) => void;
   // ★★★ 新增 props ★★★
@@ -55,51 +56,69 @@ interface EditableTextProps {
   className?: string;
   placeholder?: string;
   onSave: (newHtml: string) => void;
-  onFocus?: () => void;
 }
 
-const EditableText: React.FC<EditableTextProps> = ({ tagName: Tag, html, className, placeholder, onSave, onFocus }) => {
+const EditableText: React.FC<EditableTextProps> = ({ tagName: Tag, html, className, placeholder, onSave }) => {
   const contentRef = useRef<HTMLElement>(null);
-  
-  const handleBlur = () => {
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTypingRef = useRef(false); // ★ 新增：打字状态锁
+
+  // 1. 初始化内容 (仅在组件挂载时执行一次)
+  useEffect(() => {
     if (contentRef.current) {
-        const text = contentRef.current.innerText; // Use innerText for plain text model, or innerHTML if we want HTML
-        if (text !== html) {
-             onSave(text);
+        contentRef.current.innerText = html;
+    }
+  }, []); // 空依赖数组，只执行一次
+
+  // 2. 监听外部 props 变化 (同步服务器数据)
+  useEffect(() => {
+    // 只有当用户 "不在打字" 且 "当前没有聚焦" 时，才允许外部数据覆盖内部
+    // 这防止了 Save 触发重渲染时把用户正在输入的内容覆盖掉
+    if (contentRef.current && !isTypingRef.current && document.activeElement !== contentRef.current) {
+        if (contentRef.current.innerText !== html) {
+            contentRef.current.innerText = html;
         }
     }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-      // Basic shortcuts if needed, e.g. Cmd+Enter to save/blur
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-          e.preventDefault();
-          contentRef.current?.blur();
-      }
-  };
-
-  useEffect(() => {
-    // Sync external updates if not focused
-    if (contentRef.current && document.activeElement !== contentRef.current) {
-         if (contentRef.current.innerText !== html) {
-             contentRef.current.innerText = html;
-         }
-    }
   }, [html]);
+
+  const handleInput = (e: React.FormEvent<HTMLElement>) => {
+    isTypingRef.current = true; // 标记正在打字
+    const newValue = e.currentTarget.innerText;
+
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
+    // 防抖保存
+    timeoutRef.current = setTimeout(() => {
+        if (newValue !== html) {
+            console.log("Auto-saving...");
+            onSave(newValue);
+            isTypingRef.current = false; // 保存触发后，释放打字锁
+        }
+    }, 1000);
+  };
+
+  const handleBlur = () => {
+    isTypingRef.current = false; // 失焦释放锁
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    
+    if (contentRef.current && contentRef.current.innerText !== html) {
+        console.log("Blur saving...");
+        onSave(contentRef.current.innerText);
+    }
+  };
 
   return (
     <Tag
       ref={contentRef}
-      className={`outline-none transition-all rounded px-0.5 -mx-0.5 empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 hover:bg-stone-100/50 focus:bg-white focus:ring-1 focus:ring-stone-200 focus:shadow-sm ${className}`}
+      className={`outline-none transition-all rounded px-0.5 -mx-0.5 empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 hover:bg-stone-100/50 focus:bg-white focus:ring-1 focus:ring-stone-200 ${className}`}
       contentEditable
       suppressContentEditableWarning
+      onInput={handleInput}
       onBlur={handleBlur}
-      onFocus={onFocus}
-      onKeyDown={handleKeyDown}
       data-placeholder={placeholder}
-    >
-        {html}
-    </Tag>
+      // ★★★ 关键：这里删除了 dangerouslySetInnerHTML
+      // 我们完全依靠上面的 useEffect 来管理内容，切断了 React Render 对 DOM 的强制重置
+    />
   );
 };
 
@@ -206,51 +225,85 @@ const EmojiPicker: React.FC<{ onSelect: (e: string) => void, onClose: () => void
 
 // --- 4. Main Components Refactored ---
 
+// ★★★ 重新设计的 EmojiCollageHero ★★★
 const EmojiCollageHero: React.FC<{ emojis: string[], onUpdate: (newEmojis: string[]) => void }> = ({ emojis, onUpdate }) => {
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
+  // 补齐 5 个 emoji，防止数据不足导致布局塌陷
+  const displayEmojis = [...emojis];
+  while (displayEmojis.length < 5) displayEmojis.push('✨');
 
   return (
-    <div className="relative w-full h-48 md:h-64 overflow-hidden bg-stone-100 border-b border-stone-200 mb-8 select-none group">
-       <div className="absolute inset-0 flex justify-center items-center opacity-90 scale-150 md:scale-125">
-          {emojis.slice(0, 5).map((emoji, i) => (
-             <div 
-                key={i} 
-                className="relative"
-                style={{
-                   zIndex: i,
-                   transform: `translateX(${(i - 2) * 60}px) rotate(${(i - 2) * 10}deg)`,
-                }}
-             >
-                 <span 
-                    onClick={() => setActiveIdx(i)}
-                    className="text-[8rem] md:text-[10rem] leading-none absolute cursor-pointer hover:brightness-110 hover:scale-105 transition-all"
-                    style={{ textShadow: '0 10px 30px rgba(0,0,0,0.1)' }}
-                 >
-                    {emoji}
-                 </span>
-                 
-                 {/* Emoji Picker Popover */}
-                 {activeIdx === i && (
-                     <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50">
-                        <div className="fixed inset-0" onClick={(e) => { e.stopPropagation(); setActiveIdx(null); }} />
-                        <EmojiPicker 
-                            onSelect={(newEmoji) => {
-                                const newArr = [...emojis];
-                                newArr[i] = newEmoji;
-                                onUpdate(newArr);
-                            }} 
-                            onClose={() => setActiveIdx(null)} 
-                        />
-                     </div>
-                 )}
-             </div>
-          ))}
-       </div>
-       <div className="absolute inset-0 bg-gradient-to-t from-stone-50 to-transparent opacity-80 pointer-events-none" />
+    <div className="relative w-full py-16 bg-stone-100/50 border-b border-stone-200 mb-12 select-none overflow-visible group/hero">
        
-       {/* Hint */}
-       <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 backdrop-blur px-2 py-1 rounded text-xs text-stone-500 font-medium">
-          Click emoji to swap
+       {/* 背景装饰：微妙的光晕，增加氛围感 */}
+       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3/4 h-32 bg-gradient-to-r from-blue-100/0 via-stone-200/50 to-blue-100/0 blur-3xl rounded-full pointer-events-none" />
+
+       <div className="relative flex justify-center items-end gap-2 md:gap-6 z-10 px-4">
+          {displayEmojis.slice(0, 5).map((emoji, i) => {
+             // 视觉节奏：中间大，两边小
+             const isCenter = i === 2;
+             const isSide = i === 1 || i === 3;
+             
+             return (
+              <div 
+                key={i} 
+                className="relative group/emoji"
+                onMouseEnter={() => setHoveredIdx(i)}
+                onMouseLeave={() => setHoveredIdx(null)}
+              >
+                  {/* Emoji 本体 */}
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); setActiveIdx(activeIdx === i ? null : i); }}
+                    className={`
+                        relative transition-all duration-300 ease-out transform cursor-pointer
+                        ${isCenter ? 'text-7xl md:text-9xl -translate-y-2 z-20' : isSide ? 'text-5xl md:text-7xl z-10 text-stone-800/90' : 'text-4xl md:text-5xl text-stone-800/70'}
+                        ${activeIdx === i ? 'scale-110 drop-shadow-2xl grayscale-0' : 'hover:scale-110 hover:-translate-y-4 hover:drop-shadow-xl'}
+                        ${activeIdx !== null && activeIdx !== i ? 'blur-sm opacity-50 scale-90' : ''}
+                    `}
+                    style={{ textShadow: '0 4px 12px rgba(0,0,0,0.05)' }} // 柔和阴影
+                  >
+                     {emoji}
+                     
+                     {/* 悬停时的编辑提示 (仅在未打开选择器时显示) */}
+                     {activeIdx === null && hoveredIdx === i && (
+                         <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 opacity-0 group-hover/emoji:opacity-100 transition-opacity bg-stone-900 text-white text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1 whitespace-nowrap pointer-events-none">
+                             <Edit2 size={8} /> <span>Change</span>
+                         </div>
+                     )}
+                  </button>
+                  
+                  {/* Emoji Picker Popover (定位在 Emoji 正下方) */}
+                  {activeIdx === i && (
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-4 z-50 animate-in slide-in-from-top-2 fade-in duration-200">
+                         {/* 遮罩，点击外部关闭 */}
+                         <div className="fixed inset-0 z-[-1]" onClick={(e) => { e.stopPropagation(); setActiveIdx(null); }} />
+                         
+                         {/* 选择器本体 */}
+                         <div className="bg-white rounded-xl shadow-2xl border border-stone-200 p-3 w-64 relative after:content-[''] after:absolute after:-top-2 after:left-1/2 after:-translate-x-1/2 after:border-8 after:border-transparent after:border-b-white">
+                             <EmojiPicker 
+                                onSelect={(newEmoji) => {
+                                    const newArr = [...emojis];
+                                    newArr[i] = newEmoji;
+                                    onUpdate(newArr);
+                                    setActiveIdx(null);
+                                }} 
+                                onClose={() => setActiveIdx(null)} 
+                             />
+                         </div>
+                      </div>
+                  )}
+              </div>
+             );
+          })}
+       </div>
+
+       {/* 底部提示文案 */}
+       <div className="text-center mt-8 opacity-0 group-hover/hero:opacity-100 transition-opacity duration-500 delay-100">
+           <span className="text-xs font-bold text-stone-400 uppercase tracking-widest border border-stone-200 px-3 py-1 rounded-full bg-white/50 backdrop-blur">
+              Cognitive Symbols
+           </span>
        </div>
     </div>
   );
@@ -549,29 +602,47 @@ export const TheArtifact: React.FC<TheArtifactProps> = ({
   const [level, setLevel] = useState<CognitiveLevel>(CognitiveLevel.ELI5);
   const [completedQuestions, setCompletedQuestions] = useState<Set<number>>(new Set());
   
-  // 实时获取当前的 verified 状态，如果 pebble.isVerified 为 true，则锁定
-  // 但为了允许编辑，我们需要放宽锁定逻辑，或者允许在解锁状态下编辑
-  // 这里简化逻辑：始终允许编辑内容，但在视觉上保持 verified 的绿色状态
-  const isLocked = pebble.isVerified; 
-
   const content = pebble.content[level];
   const questions = pebble.socraticQuestions || [];
+  const isLocked = pebble.isVerified; // 苏格拉底：视觉上的锁定状态（绿色）
 
-  // --- Helpers for Socratic Logic ---
+// ★★★ 新增：当 Pebble ID 变化或 isVerified 变化时，同步勾选状态 ★★★
+  useEffect(() => {
+      if (pebble.isVerified) {
+          // 如果已验证，默认全选所有问题
+          setCompletedQuestions(new Set(questions.map((_, i) => i)));
+      } else {
+          // 如果未验证（且是切换了Pebble），重置为空
+          // 注意：这里可能需要更复杂的逻辑来保留用户未提交的勾选，但简化起见，未验证默认不勾选
+          // 或者保持当前 state 不变（如果只是 cancel verify）
+      }
+  }, [pebble.id, pebble.isVerified, questions.length]);
+
+  // --- Handlers ---
 
   const updateQuestions = (newQuestions: string[]) => {
-      onUpdateGlobal(pebble.id, 'socraticQuestions', newQuestions);
+      const deepCopy = [...newQuestions];
+      onUpdateGlobal(pebble.id, 'socraticQuestions', deepCopy);
   };
 
+  // ★★★ 核心修改：勾选/取消勾选逻辑 ★★★
   const handleToggleQuestion = (index: number) => {
     const newSet = new Set(completedQuestions);
-    if (newSet.has(index)) newSet.delete(index);
-    else newSet.add(index);
+    if (newSet.has(index)) {
+        newSet.delete(index); // 取消勾选
+    } else {
+        newSet.add(index);    // 勾选
+    }
     setCompletedQuestions(newSet);
     
-    // 只有当所有问题都存在且都被勾选时才触发 Verify
-    if (questions.length > 0 && newSet.size === questions.length && !isLocked) {
-        onVerify(pebble.id);
+    // 判断是否全选
+    const allChecked = questions.length > 0 && newSet.size === questions.length;
+    
+    // 只有当状态不一致时才触发更新
+    // 如果全选了 -> Verify(true)
+    // 如果没全选 -> Verify(false)
+    if (allChecked !== isLocked) {
+        onVerify(pebble.id, allChecked);
     }
   };
 
@@ -581,27 +652,58 @@ export const TheArtifact: React.FC<TheArtifactProps> = ({
       updateQuestions(newQuestions);
   };
 
+  // ★★★ 核心修改：新增问题时，自动取消验证状态 ★★★
   const handleAddQuestion = () => {
       const newQuestions = [...questions, "New reflection question..."];
       updateQuestions(newQuestions);
+      
+      // 因为加了新问题，肯定没全选，所以取消验证
+      if (isLocked) {
+          onVerify(pebble.id, false);
+      }
   };
 
   const handleDeleteQuestion = (index: number) => {
       const newQuestions = questions.filter((_, i) => i !== index);
       updateQuestions(newQuestions);
-      // 清理勾选状态，防止索引错位
-      const newSet = new Set<number>();
-      setCompletedQuestions(newSet);
+      
+      // 删除后，需要重新检查剩余的是否全选了
+      // 这里的逻辑稍微复杂，因为索引变了，简单起见，我们重置勾选或取消验证
+      // 最安全的做法：删除导致状态不确定，先取消验证，让用户重新确认
+      if (isLocked) {
+          onVerify(pebble.id, false);
+      }
+      
+      // 同时也需要从 completedQuestions 里移除被删的 index，并调整后续 index
+      // 这里为了简单，直接清空勾选，强迫用户重新勾选确认
+      setCompletedQuestions(new Set());
   };
 
   const handleDeleteSection = () => {
-      if(confirm("Remove the Socratic Verification section?")) {
-          updateQuestions([]); // 清空数组即视为删除板块
+      if(window.confirm("Remove the Socratic Verification section?")) {
+          // 1. 清空问题列表
+          updateQuestions([]);
+          // 2. 清空本地勾选记录 (关键步骤，防止下次恢复时残留)
+          setCompletedQuestions(new Set());
+          // 3. 状态设为未验证
+          if (isLocked) onVerify(pebble.id, false); 
       }
   };
 
   const handleRestoreSection = () => {
-      updateQuestions(["Why is this concept important?", "How does this apply to your work?", "What is a potential counter-argument?"]);
+      // 1. 恢复默认问题
+      updateQuestions([
+          "Why is this concept important?", 
+          "How does this apply to your work?", 
+          "What is a potential counter-argument?"
+      ]);
+      
+      // 2. ★★★ 显式清空勾选状态，确保新出来的都是空的 ★★★
+      setCompletedQuestions(new Set());
+
+      // 3. ★★★ 显式重置验证状态为 False ★★★
+      // 即使之前是 Verified 的，现在重置了问题，也应该变成 Unverified
+      onVerify(pebble.id, false);
   };
 
   return (
@@ -678,11 +780,11 @@ export const TheArtifact: React.FC<TheArtifactProps> = ({
                     onDelete={(idx) => onDeleteBlock(pebble.id, level, 'main', idx)}
                 />
                 
-                {/* --- SOCRATIC VERIFICATION SECTION (EDITABLE) --- */}
+                {/* --- SOCRATIC VERIFICATION SECTION --- */}
                 {questions.length > 0 ? (
                     <div className={`mt-20 rounded-2xl p-8 border transition-all duration-500 group/socratic relative ${isLocked ? 'bg-stone-900 text-stone-100 border-stone-800' : 'bg-white border-stone-200 shadow-sm'}`}>
                         
-                        {/* Header with Delete Section Button */}
+                        {/* Header */}
                         <div className="flex justify-between items-start mb-6">
                             <h3 className="font-display font-bold text-xl flex items-center gap-3">
                                 {isLocked ? <CheckCircle2 className="text-green-400" /> : <Circle className="text-stone-400" />}
@@ -697,11 +799,13 @@ export const TheArtifact: React.FC<TheArtifactProps> = ({
                             </button>
                         </div>
 
-                        {/* Questions List */}
+                        {/* List */}
                         <div className="space-y-4">
                             {questions.map((q, idx) => (
                                 <div 
-                                    key={idx} 
+                                    // ★★★ 关键修改：不要只用 idx 做 key，加上内容本身防止渲染复用导致的 bug
+                                    // 如果允许重复内容，可以暂时用 idx，但 EditableText 需要 key 更新来重置内部状态
+                                    key={`${idx}-${q.substring(0, 5)}`} 
                                     className={`group/item relative p-4 rounded-xl border transition-all flex items-start gap-4 ${
                                         isLocked 
                                         ? 'bg-stone-800 border-stone-700' 
@@ -710,7 +814,6 @@ export const TheArtifact: React.FC<TheArtifactProps> = ({
                                             : 'bg-stone-50 border-stone-100 hover:border-stone-300 hover:shadow-md'
                                     }`}
                                 >
-                                    {/* Checkbox */}
                                     <div 
                                         onClick={() => handleToggleQuestion(idx)}
                                         className={`mt-1 h-5 w-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors cursor-pointer ${
@@ -719,7 +822,6 @@ export const TheArtifact: React.FC<TheArtifactProps> = ({
                                         {(completedQuestions.has(idx) || isLocked) && <CheckCircle2 size={12} className="text-white" />}
                                     </div>
                                     
-                                    {/* Editable Text */}
                                     <div className={`flex-1 text-base font-serif leading-relaxed ${isLocked ? 'text-stone-300' : 'text-stone-700'}`}>
                                         <EditableText 
                                             tagName="div" 
@@ -728,11 +830,9 @@ export const TheArtifact: React.FC<TheArtifactProps> = ({
                                         />
                                     </div>
 
-                                    {/* Delete Single Question Button */}
                                     <button 
                                         onClick={() => handleDeleteQuestion(idx)}
                                         className="opacity-0 group-hover/item:opacity-100 absolute right-2 top-2 p-1.5 text-stone-400 hover:text-red-500 hover:bg-stone-200 rounded transition-all"
-                                        title="Delete Question"
                                     >
                                         <X size={14} />
                                     </button>
@@ -740,7 +840,7 @@ export const TheArtifact: React.FC<TheArtifactProps> = ({
                             ))}
                         </div>
 
-                        {/* Add Question Button */}
+                        {/* Add Button */}
                         <div className="mt-6 flex justify-center">
                             <button 
                                 onClick={handleAddQuestion}
@@ -755,7 +855,7 @@ export const TheArtifact: React.FC<TheArtifactProps> = ({
                         </div>
                     </div>
                 ) : (
-                    // Empty State / Restore Button
+                    // Empty State
                     <div className="mt-20 border-t border-stone-200 pt-8 flex justify-center">
                         <button 
                             onClick={handleRestoreSection}

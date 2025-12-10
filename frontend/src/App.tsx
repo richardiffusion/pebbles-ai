@@ -37,6 +37,9 @@ const App: React.FC = () => {
   const [generationTask, setGenerationTask] = useState<GenerationTask | null>(null);
   const [showCompletionToast, setShowCompletionToast] = useState(false);
 
+  // Save State
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+
   // --- 1. Initialization & Data Loading ---
 
   useEffect(() => {
@@ -187,16 +190,20 @@ const App: React.FC = () => {
 
   // --- 3. CRUD Operations (Connected to Backend) ---
 
-  const handleVerify = async (pebbleId: string) => {
-    // Optimistic UI
+  // ★★★ 修改：增加 status 参数，支持验证和取消验证 ★★★
+  const handleVerify = async (pebbleId: string, status: boolean) => {
+    // 1. 乐观更新 Archive 列表
     setArchive(prev => prev.map(p => 
-        p.id === pebbleId ? { ...p, isVerified: true } : p
+        p.id === pebbleId ? { ...p, isVerified: status } : p
     ));
+
+    // 2. 乐观更新当前 Active Pebble
     if (activePebble && activePebble.id === pebbleId) {
-        setActivePebble(prev => prev ? { ...prev, isVerified: true } : null);
+        setActivePebble(prev => prev ? { ...prev, isVerified: status } : null);
     }
-    // API Call
-    await pebbleApi.update(pebbleId, { isVerified: true });
+
+    // 3. 调用后端 API
+    await pebbleApi.update(pebbleId, { isVerified: status });
   };
 
   const handleCreateFolder = async (name: string, parentId: string | null, initialPebbleIds: string[]) => {
@@ -290,6 +297,92 @@ const App: React.FC = () => {
 
   // --- Content Updates (Complex Object) ---
 
+  // ★★★ 新增：处理 Title, Summary, Keywords 的更新 ★★★
+  const handleUpdateLevelMetadata = async (
+      pebbleId: string, 
+      level: CognitiveLevel, 
+      field: 'title' | 'summary' | 'keywords', 
+      value: string | string[]
+  ) => {
+      let updatedContentForApi = null;
+
+      // 1. 更新 Archive 列表 (全局缓存)
+      const updateFn = (prev: PebbleData[]) => prev.map(p => {
+          if (p.id !== pebbleId) return p;
+          
+          // 深度拷贝 content 防止引用未更新
+          const newContent = { ...p.content };
+          const newLevelContent = { ...newContent[level] };
+          
+          // 更新字段
+          // @ts-ignore - 动态字段赋值，TypeScript可能会报错，忽略即可
+          newLevelContent[field] = value;
+          
+          newContent[level] = newLevelContent;
+          
+          const newPebble = { ...p, content: newContent };
+          updatedContentForApi = newContent; // 捕获用于 API 发送
+          return newPebble;
+      });
+
+      setArchive(updateFn);
+      
+      // 2. 同步更新 activePebble (当前视图状态)
+      // 如果不更新这个，编辑器里的内容可能会跳回旧值
+      if (activePebble?.id === pebbleId) {
+          setActivePebble(prev => {
+              if (!prev) return null;
+              const newContent = { ...prev.content };
+              const newLevelContent = { ...newContent[level] };
+              // @ts-ignore
+              newLevelContent[field] = value;
+              newContent[level] = newLevelContent;
+              
+              return { ...prev, content: newContent };
+          });
+      }
+
+      // 3. API 调用 (持久化保存)
+      if (updatedContentForApi) {
+          setSaveStatus('saving');
+          try {
+              // 注意：后端只需要 content 字段即可更新所有子内容
+              await pebbleApi.update(pebbleId, { content: updatedContentForApi });
+              setTimeout(() => setSaveStatus('saved'), 500);
+          } catch (e) {
+              console.error(e);
+              setSaveStatus('error');
+          }
+      }
+  };
+
+  // ★★★ 新增：处理 Socratic Questions 等全局字段更新 ★★★
+  const handleUpdateGlobal = async (
+      pebbleId: string, 
+      field: string, 
+      value: any
+  ) => {
+      // 1. 更新本地 Archive
+      setArchive(prev => prev.map(p => 
+          p.id === pebbleId ? { ...p, [field]: value } : p
+      ));
+
+      // 2. 更新当前 Active Pebble
+      if (activePebble?.id === pebbleId) {
+          setActivePebble(prev => prev ? { ...prev, [field]: value } : null);
+      }
+
+      // 3. 发送 API
+      setSaveStatus('saving');
+      try {
+          await pebbleApi.update(pebbleId, { [field]: value });
+          setTimeout(() => setSaveStatus('saved'), 500);
+      } catch (e) {
+          console.error(e);
+          setSaveStatus('error');
+      }
+  };
+
   const handleUpdatePebbleContent = async (
       pebbleId: string, 
       level: CognitiveLevel, 
@@ -351,8 +444,16 @@ const App: React.FC = () => {
 
       // 3. API Call
       if (updatedPebbleContent) {
-          await pebbleApi.update(pebbleId, { content: updatedPebbleContent });
-      }
+        setSaveStatus('saving'); // ★ 开始保存
+                try {
+                    await pebbleApi.update(pebbleId, { content: updatedPebbleContent });
+                    // 稍微延迟一下变回 Saved，让用户看清
+                    setTimeout(() => setSaveStatus('saved'), 500); 
+                } catch (e) {
+                    console.error(e);
+                    setSaveStatus('error');
+                }
+            }
   };
 
   // ★★★ 1. 新增：添加版块逻辑 ★★★
@@ -617,6 +718,9 @@ const App: React.FC = () => {
                     onBack={goToDrop}
                     onUpdateContent={handleUpdatePebbleContent}
                     onUpdateEmoji={handleUpdateEmojiCollage}
+                    // ★★★ 确保这一行存在 ★★★
+                    onUpdateMetadata={handleUpdateLevelMetadata}
+                    onUpdateGlobal={handleUpdateGlobal}
                     onAddBlock={handleAddBlock} // 新增：添加版块
                     onMoveBlock={handleMoveBlock} // 新增：移动版块
                     onDeleteBlock={handleDeleteBlock} // 新增：删除版块
@@ -640,6 +744,14 @@ const App: React.FC = () => {
             </div>
           )}
       </main>
+
+      {/* Save Status Indicator */}
+      <div className="fixed top-6 right-20 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/80 backdrop-blur border border-stone-200 text-xs font-bold text-stone-500 shadow-sm pointer-events-none transition-all">
+      {saveStatus === 'saving' && <Loader2 size={12} className="animate-spin text-blue-500" />}
+      {saveStatus === 'saved' && <CheckCircle2 size={12} className="text-green-500" />}
+      {saveStatus === 'error' && <span className="text-red-500">Save Failed</span>}
+      <span className="uppercase tracking-wider">{saveStatus === 'saved' ? 'Saved' : saveStatus === 'saving' ? 'Saving...' : 'Error'}</span>
+      </div>
 
       {/* ★★★ 新增：右上角退出按钮 ★★★ */}
       {/* 只在已登录状态下显示 */}

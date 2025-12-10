@@ -22,14 +22,20 @@ async def create_pebble(pebble: Pebble, current_user: dict = Depends(get_current
 
 @router.put("/pebbles/{pebble_id}")
 async def update_pebble(pebble_id: str, update_data: dict, current_user: dict = Depends(get_current_user)):
-    # 注意：前端可能只发部分数据，这里建议全量更新或者精细化 update
-    # 简单起见，这里假设前端发送的是完整的 Pebble 对象或者部分字段
+    print(f"Update Request for {pebble_id}: {update_data.keys()}") # ★ Debug Log
+    
     result = await pebbles_collection.update_one(
         {"id": pebble_id, "owner_id": current_user["username"]},
         {"$set": update_data}
     )
-    if result.modified_count == 0:
+    
+    print(f"Matched: {result.matched_count}, Modified: {result.modified_count}") # ★ Debug Log
+    
+    if result.matched_count == 0:
+        # 如果匹配数为0，说明 ID 不对或者 Owner 不对
+        print("Update Failed: Document not found or permission denied.")
         raise HTTPException(status_code=404, detail="Pebble not found")
+        
     return {"status": "success"}
 
 @router.delete("/pebbles/{pebble_id}")
