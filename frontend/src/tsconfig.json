@@ -10,8 +10,10 @@
       "DOM.Iterable"
     ],
     "skipLibCheck": true,
+    /* 修改位置：追加 "vite/client" */
     "types": [
-      "node"
+      "node",
+      "vite/client"
     ],
     "moduleResolution": "bundler",
     "isolatedModules": true,

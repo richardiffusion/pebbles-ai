@@ -37,3 +37,8 @@ dist-ssr
 /backend/app/*.pyc
 /backend/.env
 /backend/.venv
+
+# dist
+/dist/
+/backend/dist/
+/frontend/dist-app/
