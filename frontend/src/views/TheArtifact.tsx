@@ -841,14 +841,6 @@ export const TheArtifact: React.FC<TheArtifactProps> = ({
 
   return (
     <div className="min-h-screen bg-stone-50 pb-32 fade-in font-sans selection:bg-stone-800 selection:text-stone-50">
-        
-        {/* Navigation */}
-        <button 
-            onClick={onBack}
-            className="fixed top-6 left-6 z-40 p-2 bg-white/80 backdrop-blur rounded-full shadow-sm hover:bg-stone-100 transition-colors border border-stone-200"
-        >
-            <ArrowLeft size={20} className="text-stone-600" />
-        </button>
 
         {/* Hero Section */}
         {/* @ts-ignore */}

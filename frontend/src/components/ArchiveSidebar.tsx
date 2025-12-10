@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Library, ArrowRight, Loader2, ChevronRight, ChevronDown, 
-  MoreHorizontal, Edit2, Trash2, Folder as FolderIcon, FileText,
-  CornerDownLeft, Link as LinkIcon, Undo, CheckCircle2,
-  PanelLeft, Layers, ArrowLeft
+  MoreHorizontal, Edit2, Trash2, Folder as FolderIcon,
+  CornerDownLeft, Link as LinkIcon, Undo, 
+  PanelLeft, Layers, ArrowLeft, Plus
 } from 'lucide-react';
-import { PebbleData, CognitiveLevel, GenerationTask, Folder } from '../types';
+import { PebbleData, GenerationTask, Folder } from '../types';
 
 interface ArchiveSidebarProps {
   archive: PebbleData[];
@@ -16,6 +16,7 @@ interface ArchiveSidebarProps {
   onSelectPebble: (pebble: PebbleData) => void;
   onSelectTask: () => void;
   onGoToArchive: () => void;
+  onBack: () => void; // go to Drop
   isImmersionMode: boolean;
   onRenamePebble: (id: string, newTopic: string) => void;
   onDeletePebbles: (ids: string[]) => void;
@@ -48,6 +49,7 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   onSelectPebble, 
   onSelectTask,
   onGoToArchive,
+  onBack,
   isImmersionMode,
   onRenamePebble,
   onDeletePebbles,
@@ -57,8 +59,9 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   onUngroupFolder
 }) => {
   // State
+  // ★★★ 修改：删除了 activeTab 状态，因为侧边栏不再需要管理 Tabs
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
-  const [cardViewFolderId, setCardViewFolderId] = useState<string | null>(null); // For Card Mode drill-down
+  const [cardViewFolderId, setCardViewFolderId] = useState<string | null>(null);
   
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -70,11 +73,10 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const isResizing = useRef(false);
 
-  // Filter out deleted items
   const visiblePebbles = useMemo(() => archive.filter(p => !p.isDeleted), [archive]);
   const isCardMode = sidebarWidth > 300;
 
-  // Click Outside Handler
+  // --- Effects (Resize & Click Outside) ---
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (contextMenu.visible && contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
@@ -88,29 +90,21 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [contextMenu.visible, editingId, editName]);
 
-  // Resizing Logic
   useEffect(() => {
       const handleMouseMove = (e: MouseEvent) => {
           if (!isResizing.current) return;
           let newWidth = e.clientX;
-          
-          // Snapping thresholds
-          if (Math.abs(newWidth - 260) < 20) newWidth = 260; // Snap to List
-          if (Math.abs(newWidth - 380) < 20) newWidth = 380; // Snap to Card
-          
-          // Constraints
+          if (Math.abs(newWidth - 260) < 20) newWidth = 260;
+          if (Math.abs(newWidth - 380) < 20) newWidth = 380;
           if (newWidth < 240) newWidth = 240;
           if (newWidth > 480) newWidth = 480;
-          
           onSetSidebarWidth(newWidth);
       };
-  
       const handleMouseUp = () => {
           isResizing.current = false;
           document.body.style.cursor = 'default';
           document.body.style.userSelect = 'auto';
       };
-  
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
       return () => {
@@ -119,8 +113,7 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
       };
   }, [onSetSidebarWidth]);
 
-  // --- Handlers ---
-
+  // --- Handlers (Drag, Rename, Delete, etc.) ---
   const startResizing = () => {
     isResizing.current = true;
     document.body.style.cursor = 'col-resize';
@@ -141,7 +134,6 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
     e.stopPropagation();
     if (folderId && folderId !== dragOverFolderId) {
         setDragOverFolderId(folderId);
-        // Auto expand in List mode
         if (!isCardMode && !expandedFolders.has(folderId)) {
             setTimeout(() => {
                 setExpandedFolders(prev => new Set(prev).add(folderId));
@@ -160,9 +152,7 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
     e.stopPropagation();
     setDragOverFolderId(null);
     const pebbleId = e.dataTransfer.getData("text/pebble-id");
-    if (pebbleId) {
-        onMovePebble(pebbleId, folderId);
-    }
+    if (pebbleId) onMovePebble(pebbleId, folderId);
   };
 
   const toggleFolderListMode = (e: React.MouseEvent, id: string) => {
@@ -188,7 +178,6 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
     if (editingId && editName.trim()) {
        const isPebble = archive.some(p => p.id === editingId);
        const isFolder = folders.some(f => f.id === editingId);
-       
        if (isPebble) onRenamePebble(editingId, editName.trim());
        if (isFolder) onRenameFolder(editingId, editName.trim());
     }
@@ -197,11 +186,7 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
 
   const handleDelete = (id: string) => {
       onDeletePebbles([id]);
-      setToast({
-          visible: true,
-          message: 'Item deleted',
-          idsToRestore: [id]
-      });
+      setToast({ visible: true, message: 'Item deleted', idsToRestore: [id] });
       setTimeout(() => setToast(prev => ({ ...prev, visible: false })), 5000);
       setContextMenu(prev => ({ ...prev, visible: false }));
   };
@@ -214,13 +199,7 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   const handleContextMenu = (e: React.MouseEvent, id: string, type: 'folder' | 'pebble') => {
       e.preventDefault();
       e.stopPropagation();
-      setContextMenu({
-          visible: true,
-          x: e.clientX,
-          y: e.clientY,
-          targetId: id,
-          type
-      });
+      setContextMenu({ visible: true, x: e.clientX, y: e.clientY, targetId: id, type });
   };
 
   const copyToInput = (text: string) => {
@@ -228,8 +207,7 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
       setContextMenu(prev => ({ ...prev, visible: false }));
   };
 
-  // --- Renderers ---
-
+  // --- Render Helpers ---
   const renderToast = () => {
     if (!toast.visible) return null;
     return (
@@ -290,7 +268,6 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
       );
   };
 
-  // --- LIST MODE RENDERER ---
   const renderListMode = (parentId: string | null, depth: number = 0) => {
       const currentFolders = folders.filter(f => f.parentId === parentId);
       const currentPebbles = visiblePebbles.filter(p => p.folderId === parentId).sort((a,b) => b.timestamp - a.timestamp);
@@ -341,7 +318,6 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                              <span className="text-xs font-semibold truncate flex-1">{folder.name}</span>
                          )}
 
-                         {/* Inline Rename for Folder */}
                          {!isEditing && (
                             <button 
                                 className="ml-2 opacity-0 group-hover:opacity-100 p-1 hover:bg-stone-300 rounded text-stone-400 hover:text-stone-800 transition-all"
@@ -368,7 +344,6 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                         style={{ paddingLeft: `${depth * 12 + 20}px` }}
                     >
                         <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mr-2 transition-transform ${isEditing ? 'scale-0' : 'scale-100'} ${pebble.isVerified ? 'bg-green-500' : 'bg-stone-400'}`} />
-                        
                         <div className="flex-1 min-w-0 relative">
                             {isEditing ? (
                                 <input 
@@ -390,20 +365,17 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                                 </span>
                             )}
                         </div>
-
                         {!isEditing && (
                             <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 pl-4 bg-gradient-to-l from-stone-200 via-stone-200 to-transparent">
                                 <button 
                                     className="p-1 hover:bg-stone-300 rounded text-stone-500 hover:text-stone-800 transition-colors"
                                     onClick={(e) => { e.stopPropagation(); startRenaming(pebble.id, pebble.topic); }}
-                                    title="Rename"
                                 >
                                     <Edit2 size={10} />
                                 </button>
                                 <button 
                                     className="p-1 hover:bg-red-100 rounded text-stone-400 hover:text-red-500 transition-colors"
                                     onClick={(e) => { e.stopPropagation(); handleDelete(pebble.id); }}
-                                    title="Delete"
                                 >
                                     <Trash2 size={10} />
                                 </button>
@@ -416,18 +388,14 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
       );
   };
 
-  // --- CARD MODE RENDERER ---
   const renderCardMode = () => {
-      // 1. Determine Context (Root or Folder)
       const currentContextId = cardViewFolderId;
       const currentFolder = folders.find(f => f.id === currentContextId);
-      
       const subFolders = folders.filter(f => f.parentId === currentContextId);
       const items = visiblePebbles.filter(p => p.folderId === currentContextId).sort((a,b) => b.timestamp - a.timestamp);
 
       return (
           <div className="space-y-4 px-1">
-              {/* Header Navigation for Sub-levels */}
               {currentContextId && (
                   <div className="flex items-center gap-2 mb-4">
                       <button 
@@ -439,13 +407,10 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                       <h3 className="font-display font-bold text-lg text-stone-800">{currentFolder?.name}</h3>
                   </div>
               )}
-
-              {/* Folders as Stacks */}
               {subFolders.map(folder => {
                   const isEditing = editingId === folder.id;
                   const itemCount = visiblePebbles.filter(p => p.folderId === folder.id).length;
                   const subFolderCount = folders.filter(f => f.parentId === folder.id).length;
-                  
                   return (
                       <div 
                         key={folder.id}
@@ -456,14 +421,10 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                         onDrop={(e) => handleDropOnFolder(e, folder.id)}
                         className={`relative group bg-stone-100 border border-stone-200 p-4 rounded-xl cursor-pointer hover:bg-white hover:shadow-md transition-all ${dragOverFolderId === folder.id ? 'ring-2 ring-blue-300 bg-blue-50' : ''}`}
                       >
-                          {/* Stack Effect Visuals */}
                           <div className="absolute top-0 right-0 -mt-1 -mr-1 w-full h-full border border-stone-200 bg-stone-50 rounded-xl z-[-1] translate-x-1 translate-y-1" />
-                          
                           <div className="flex justify-between items-start">
                              <div className="flex items-center gap-3">
-                                 <div className="bg-stone-200 p-2 rounded-lg text-stone-500">
-                                     <Layers size={20} />
-                                 </div>
+                                 <div className="bg-stone-200 p-2 rounded-lg text-stone-500"><Layers size={20} /></div>
                                  <div>
                                      {isEditing ? (
                                          <input 
@@ -482,7 +443,6 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                                      <span className="text-xs text-stone-500">{itemCount} items {subFolderCount > 0 && `• ${subFolderCount} folders`}</span>
                                  </div>
                              </div>
-                             
                              <button 
                                 className="opacity-0 group-hover:opacity-100 p-1 hover:bg-stone-200 rounded text-stone-400 hover:text-stone-800"
                                 onClick={(e) => handleContextMenu(e, folder.id, 'folder')}
@@ -493,8 +453,6 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                       </div>
                   );
               })}
-
-              {/* Items as Cards */}
               {items.map(pebble => {
                   const emojis = pebble.content.ELI5.emojiCollage || [];
                   return (
@@ -506,7 +464,6 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                         onContextMenu={(e) => handleContextMenu(e, pebble.id, 'pebble')}
                         className="group bg-white border border-stone-200 rounded-xl overflow-hidden hover:shadow-lg hover:-translate-y-1 transition-all cursor-pointer"
                       >
-                          {/* Emoji Collage Preview */}
                           <div className="h-24 w-full bg-stone-100 overflow-hidden relative flex items-center justify-center gap-1">
                               {emojis.slice(0, 3).map((e, i) => (
                                  <span key={i} className="text-4xl filter drop-shadow-sm transform group-hover:scale-110 transition-transform">{e}</span>
@@ -527,11 +484,8 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                       </div>
                   );
               })}
-              
               {subFolders.length === 0 && items.length === 0 && (
-                  <div className="text-center py-12 text-stone-400 italic text-sm border-2 border-dashed border-stone-100 rounded-xl">
-                      Empty collection
-                  </div>
+                  <div className="text-center py-12 text-stone-400 italic text-sm border-2 border-dashed border-stone-100 rounded-xl">Empty collection</div>
               )}
           </div>
       );
@@ -540,20 +494,33 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   return (
     <aside 
       style={{ width: sidebarWidth }}
-      className={`min-w-[240px] max-w-[480px] h-screen bg-stone-200/50 backdrop-blur-xl border-r border-stone-200 transition-opacity duration-500 ease-in-out flex flex-col z-20 absolute top-0 left-0 lg:relative ${isImmersionMode ? 'opacity-30 -translate-x-10 pointer-events-none' : 'opacity-100 translate-x-0 pointer-events-auto'}`}
+      className={`min-w-[240px] max-w-[480px] h-screen bg-stone-100/80 backdrop-blur-xl border-r border-stone-200 transition-opacity duration-500 ease-in-out flex flex-col z-20 absolute top-0 left-0 lg:relative ${isImmersionMode ? 'opacity-30 -translate-x-10 pointer-events-none' : 'opacity-100 translate-x-0 pointer-events-auto'}`}
     >
-      {/* Header */}
-      <div 
-        onClick={onGoToArchive}
-        className="p-6 border-b border-stone-200/50 cursor-pointer group flex items-center justify-between"
-      >
-        <div className="flex items-center gap-2 text-stone-500 group-hover:text-stone-900 transition-colors">
-          <Library size={18} />
-          <span className="font-display font-bold text-sm tracking-widest uppercase">
-              {isCardMode ? 'Library' : 'Archive'}
-          </span>
-        </div>
-        <ArrowRight size={14} className="opacity-0 group-hover:opacity-100 -translate-x-2 group-hover:translate-x-0 transition-all" />
+      {/* ★★★ 修改：重构 Header，移除了 Tab 按钮 ★★★ */}
+      <div className="flex flex-col border-b border-stone-200/50">
+          
+          {/* 1. Archive Link (最顶部) */}
+          <div 
+            onClick={onGoToArchive}
+            className="p-4 flex items-center justify-between cursor-pointer group hover:bg-stone-50 transition-colors"
+          >
+             <div className="flex items-center gap-2 text-stone-600 group-hover:text-stone-900">
+                <Library size={18} />
+                <span className="font-display font-bold text-sm tracking-widest uppercase">Archive</span>
+             </div>
+             <ArrowRight size={14} className="text-stone-400 opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0" />
+          </div>
+
+          {/* 2. Cast New Pebble Button (第二层) */}
+          <div className="px-4 pb-4">
+             <button 
+                onClick={onBack}
+                className="w-full bg-stone-900 hover:bg-stone-800 text-stone-100 py-2.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5"
+             >
+                <Plus size={16} />
+                <span>Cast New Pebble</span>
+             </button>
+          </div>
       </div>
 
       {/* Resize Handle */}
@@ -561,7 +528,6 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
         onMouseDown={startResizing}
         className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize z-50 hover:bg-blue-400/50 transition-colors group"
       >
-          {/* Toggle Button on Handle */}
           <button 
              onMouseDown={(e) => { e.stopPropagation(); toggleWidthMode(); }}
              className="absolute top-1/2 -left-3 w-6 h-8 bg-stone-300 rounded-l flex items-center justify-center text-stone-600 hover:bg-stone-400 hover:text-white transition-colors opacity-0 group-hover:opacity-100"
@@ -570,10 +536,8 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
           </button>
       </div>
 
-      {/* Stream List */}
+      {/* Stream List (第三层) */}
       <div className="flex-1 overflow-y-auto p-4 space-y-1 scrollbar-thin relative">
-        
-        {/* --- GHOST PEBBLE (Async Task) --- */}
         {generationTask && (
             <div 
                 onClick={onSelectTask}
@@ -602,22 +566,12 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
                         )}
                     </div>
                 </div>
-                {generationTask.status === 'completed' && (
-                    <div className="absolute top-3 right-3">
-                         <span className="flex h-2 w-2 relative">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-stone-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-stone-800"></span>
-                        </span>
-                    </div>
-                )}
             </div>
         )}
 
         {isCardMode ? renderCardMode() : renderListMode(null, 0)}
-
       </div>
       
-      {/* Footer Area for Toast/Status */}
       <div className="absolute bottom-0 w-full p-4 pointer-events-none flex justify-center">
          {renderToast()}
       </div>

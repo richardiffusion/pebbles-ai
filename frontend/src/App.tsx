@@ -38,7 +38,7 @@ const App: React.FC = () => {
   const [showCompletionToast, setShowCompletionToast] = useState(false);
 
   // Save State
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error' | null>(null);
 
   // --- 1. Initialization & Data Loading ---
 
@@ -52,6 +52,16 @@ const App: React.FC = () => {
       setIsLoading(false);
     }
   }, []);
+
+  // ★★★ 新增：当状态变为 'saved' 后，2秒后自动隐藏 ★★★
+  useEffect(() => {
+    if (saveStatus === 'saved') {
+      const timer = setTimeout(() => {
+        setSaveStatus(null);
+      }, 2000); // 2秒后消失，你可以调整这个时间
+      return () => clearTimeout(timer);
+    }
+  }, [saveStatus]);
 
   const loadUserData = async () => {
     try {
@@ -683,6 +693,7 @@ const App: React.FC = () => {
              onSelectPebble={handleSelectFromArchive}
              onSelectTask={handleTaskClick}
              onGoToArchive={goToArchive}
+             onBack={goToDrop}
              isImmersionMode={isImmersionMode && viewState === ViewState.DROP}
              onRenamePebble={handleRenamePebble}
              onDeletePebbles={handleDeletePebbles}
@@ -690,6 +701,7 @@ const App: React.FC = () => {
              onMovePebble={handleMovePebble}
              onRenameFolder={handleRenameFolder}
              onUngroupFolder={handleUngroupFolder}
+
           />
       )}
 
@@ -745,13 +757,17 @@ const App: React.FC = () => {
           )}
       </main>
 
-      {/* Save Status Indicator */}
-      <div className="fixed top-6 right-20 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/80 backdrop-blur border border-stone-200 text-xs font-bold text-stone-500 shadow-sm pointer-events-none transition-all">
-      {saveStatus === 'saving' && <Loader2 size={12} className="animate-spin text-blue-500" />}
-      {saveStatus === 'saved' && <CheckCircle2 size={12} className="text-green-500" />}
-      {saveStatus === 'error' && <span className="text-red-500">Save Failed</span>}
-      <span className="uppercase tracking-wider">{saveStatus === 'saved' ? 'Saved' : saveStatus === 'saving' ? 'Saving...' : 'Error'}</span>
-      </div>
+      {/* ★★★ 修改渲染条件：只在 Artifact 视图 且 有状态时显示 ★★★ */}
+      {viewState === ViewState.ARTIFACT && saveStatus && (
+        <div className="fixed top-6 right-20 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/80 backdrop-blur border border-stone-200 text-xs font-bold text-stone-500 shadow-sm pointer-events-none transition-all animate-in fade-in slide-in-from-top-2">
+            {saveStatus === 'saving' && <Loader2 size={12} className="animate-spin text-blue-500" />}
+            {saveStatus === 'saved' && <CheckCircle2 size={12} className="text-green-500" />}
+            {saveStatus === 'error' && <span className="text-red-500">Save Failed</span>}
+            <span className="uppercase tracking-wider">
+              {saveStatus === 'saved' ? 'Saved' : saveStatus === 'saving' ? 'Saving...' : 'Error'}
+            </span>
+        </div>
+      )}
 
       {/* ★★★ 新增：右上角退出按钮 ★★★ */}
       {/* 只在已登录状态下显示 */}
