@@ -34,16 +34,16 @@ api.interceptors.response.use(
 );
 
 export const authApi = {
-  // ★★★ Auth 路由保持在根目录 (不需要改) ★★★
+  // ★★★ Auth 路由 ★★★
   login: async (username: string, password: string) => {
     const formData = new FormData();
     formData.append('username', username);
     formData.append('password', password);
-    const res = await api.post('/auth/token', formData);
+    const res = await api.post('/api/auth/token', formData);
     return res.data; 
   },
   register: async (username: string, password: string) => {
-    const res = await api.post('/auth/register', { username, password });
+    const res = await api.post('/api/auth/register', { username, password });
     return res.data;
   },
 };
