@@ -3,7 +3,7 @@ import {
   Library, ArrowRight, Loader2, ChevronRight, ChevronDown, 
   MoreHorizontal, Edit2, Trash2, Folder as FolderIcon,
   CornerDownLeft, Link as LinkIcon, Undo, 
-  PanelLeft, Layers, ArrowLeft, Plus
+  PanelLeft, Layers, ArrowLeft, Plus, PenTool
 } from 'lucide-react';
 import { PebbleData, GenerationTask, Folder } from '../types';
 
@@ -24,6 +24,7 @@ interface ArchiveSidebarProps {
   onMovePebble: (pebbleId: string, targetFolderId: string | null) => void;
   onRenameFolder: (id: string, name: string) => void;
   onUngroupFolder: (id: string) => void;
+  onCreateBlank: () => void;
 }
 
 interface ContextMenuState {
@@ -56,7 +57,8 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
   onRestorePebbles,
   onMovePebble,
   onRenameFolder,
-  onUngroupFolder
+  onUngroupFolder,
+  onCreateBlank
 }) => {
   // State
   // ★★★ 修改：删除了 activeTab 状态，因为侧边栏不再需要管理 Tabs
@@ -511,14 +513,26 @@ export const ArchiveSidebar: React.FC<ArchiveSidebarProps> = ({
              <ArrowRight size={14} className="text-stone-400 opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0" />
           </div>
 
-          {/* 2. Cast New Pebble Button (第二层) */}
-          <div className="px-4 pb-4">
+          {/* ★★★ 修改：操作按钮区 (双按钮布局) ★★★ */}
+          <div className="px-4 pb-4 grid grid-cols-2 gap-2">
+             {/* 左边：AI 生成 (Cast) */}
              <button 
                 onClick={onBack}
-                className="w-full bg-stone-900 hover:bg-stone-800 text-stone-100 py-2.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5"
+                className="bg-stone-900 hover:bg-stone-800 text-stone-100 py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0"
+                title="AI Construct"
              >
-                <Plus size={16} />
-                <span>Cast New Pebble</span>
+                <Plus size={14} />
+                <span>Cast Pebble</span>
+             </button>
+
+             {/* 右边：手动创建 (Draft) */}
+             <button 
+                onClick={onCreateBlank}
+                className="bg-white hover:bg-stone-50 text-stone-900 border border-stone-200 py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 active:translate-y-0"
+                title="Blank Note"
+             >
+                <PenTool size={14} />
+                <span>Draft Empty</span>
              </button>
           </div>
       </div>

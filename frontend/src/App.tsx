@@ -690,6 +690,86 @@ const App: React.FC = () => {
      }
   };
 
+
+  // ★★★ 新增：创建空白 Pebble 的逻辑 ★★★
+  const handleCreateBlankPebble = async () => {
+      // 1. 定义什么叫做“未编辑的空白草稿”
+      const DEFAULT_TITLE = "Untitled Idea";
+      const DEFAULT_BODY = "Start writing your thoughts here...";
+
+      // 2. 在现有存档中查找是否已有这样的草稿
+      // 我们按时间倒序找，优先复用最近的一个
+      const existingDraft = archive.sort((a, b) => b.timestamp - a.timestamp).find(p => {
+          // 检查标题
+          if (p.topic !== DEFAULT_TITLE) return false;
+          
+          // 检查正文内容 (ELI5 和 ACADEMIC 都要检查，或者只检查 ELI5 即可，因为它们是同步初始化的)
+          const mainBlock = p.content.ELI5.mainContent[0];
+          if (!mainBlock || mainBlock.body !== DEFAULT_BODY) return false;
+          
+          // 检查是否仅有一个版块 (如果用户加了新版块，就不算空白了)
+          if (p.content.ELI5.mainContent.length > 1) return false;
+          if (p.content.ELI5.sidebarContent.length > 0) return false;
+
+          return true;
+      });
+
+      // 3. 如果找到了“干净”的草稿，直接复用
+      if (existingDraft) {
+          setActivePebble(existingDraft);
+          setViewState(ViewState.ARTIFACT);
+          return; // ★★★ 退出函数，不执行新建逻辑 ★★★
+      }
+
+      // --- 下面是之前的创建逻辑 (保持不变) ---
+      const newId = crypto.randomUUID();
+      const timestamp = Date.now();
+      
+      const blankPebble: PebbleData = {
+          id: newId,
+          topic: DEFAULT_TITLE, // 使用常量
+          timestamp: timestamp,
+          folderId: null,
+          isVerified: false,
+          isUserEdited: true, 
+          socraticQuestions: [],
+          content: {
+              ELI5: {
+                  title: DEFAULT_TITLE,
+                  summary: "Click to add a summary...",
+                  emojiCollage: ["📝", "✨", "💭"],
+                  keywords: [],
+                  mainContent: [
+                      { type: 'text', body: DEFAULT_BODY, iconType: 'default', isUserEdited: true }
+                  ],
+                  sidebarContent: []
+              },
+              ACADEMIC: {
+                  title: DEFAULT_TITLE,
+                  summary: "Click to add a summary...",
+                  emojiCollage: ["📝", "✨", "💭"],
+                  keywords: [],
+                  mainContent: [
+                      { type: 'text', body: DEFAULT_BODY, iconType: 'default', isUserEdited: true }
+                  ],
+                  sidebarContent: []
+              }
+          }
+      };
+
+      setArchive(prev => [blankPebble, ...prev]);
+      setActivePebble(blankPebble);
+      setViewState(ViewState.ARTIFACT);
+
+      try {
+          await pebbleApi.create(blankPebble);
+          setSaveStatus('saved');
+      } catch (e) {
+          console.error("Failed to create blank pebble", e);
+          setSaveStatus('error');
+      }
+  };
+
   // --- Navigation ---
 
   const goToArchive = () => setViewState(ViewState.ARCHIVE);
@@ -740,7 +820,7 @@ const App: React.FC = () => {
              onMovePebble={handleMovePebble}
              onRenameFolder={handleRenameFolder}
              onUngroupFolder={handleUngroupFolder}
-
+             onCreateBlank={handleCreateBlankPebble}
           />
       )}
 
