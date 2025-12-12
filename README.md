@@ -1,4 +1,5 @@
-# 目前pebbles项目还在立项阶段
+# Pre-released version can be found here ↓
+# 目前pebbles未发布版本可以在以下网址查看
 # www.richardiffusion.me/pebbles/app
 
 <img width="2850" height="1758" alt="image" src="https://github.com/user-attachments/assets/81beef31-8fa5-4471-b5ff-305ee90c28aa" />
