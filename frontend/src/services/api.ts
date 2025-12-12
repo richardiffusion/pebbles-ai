@@ -39,11 +39,11 @@ export const authApi = {
     const formData = new FormData();
     formData.append('username', username);
     formData.append('password', password);
-    const res = await api.post('/api/auth/token', formData);
+    const res = await api.post('/auth/token', formData);
     return res.data; 
   },
   register: async (username: string, password: string) => {
-    const res = await api.post('/api/auth/register', { username, password });
+    const res = await api.post('/auth/register', { username, password });
     return res.data;
   },
 };
